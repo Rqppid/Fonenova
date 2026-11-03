@@ -5,6 +5,7 @@
  */
 import { cashCalendar, overdueOrders } from './metrics'
 import type { AttentionItem } from './attention'
+import type { HealthCheck } from './health'
 import type { LiveView } from './live-view'
 import type { Cents, FxRate, IsoDate, XeroInvoice } from './types'
 
@@ -31,6 +32,8 @@ export function buildDigest(args: {
   drafts: readonly XeroInvoice[]
   /** Attention items to list (HIGH first); the live Xero checks plus anything else worth a look. */
   problems: readonly AttentionItem[]
+  /** The watchdog's checks (lib/health.ts); anything not ok is listed under "System health". */
+  health?: readonly HealthCheck[]
 }): Digest {
   const { view, today } = args
   const orders = view.ledger.orders
@@ -69,6 +72,11 @@ export function buildDigest(args: {
     t.push('', 'FIX IN XERO')
     for (const p of problems) t.push(`- ${p.reference}: ${p.issue}`)
   }
+  const sick = (args.health ?? []).filter((c) => c.level !== 'ok')
+  if (sick.length) {
+    t.push('', 'SYSTEM HEALTH')
+    for (const c of sick) t.push(`- ${c.level === 'red' ? 'RED' : 'AMBER'}: ${c.title}. ${c.fix ?? c.detail}`)
+  }
   if (args.drafts.length) t.push('', `${args.drafts.length} synced draft${args.drafts.length > 1 ? 's' : ''} waiting to be approved in Xero.`)
   t.push('', `Open QuayPilot: ${args.appUrl}`, 'Sent automatically every Friday. Figures as in the dashboard; credit notes that never reached Xero or the ledger cannot be seen.')
   const text = t.join('\n')
@@ -95,6 +103,12 @@ export function buildDigest(args: {
   if (problems.length) {
     h.push(`<h2 style="${h2}">Fix in Xero</h2>`)
     h.push(table(problems.map((p) => `<tr><td style="${td}"><strong>${esc(p.reference)}</strong><div style="color:#4a4f59;font-size:13px">${esc(p.issue)}</div>${p.link ? `<a href="${esc(p.link)}" style="color:#0a72df;font-size:13px">Open in Xero</a>` : ''}</td><td style="${tdR}">${p.impactCents ? eur(p.impactCents) : ''}</td></tr>`)))
+  }
+  if (sick.length) {
+    h.push(`<h2 style="${h2}">System health</h2>`)
+    h.push(table(sick.map((c) => `<tr><td style="${td}"><strong style="color:${c.level === 'red' ? '#b42318' : '#b54708'}">${esc(c.title)}</strong><div style="color:#4a4f59;font-size:13px">${esc(c.fix ?? c.detail)}</div></td></tr>`)))
+  } else if (args.health) {
+    h.push(`<p style="font-size:13px;color:#027a48;margin:18px 0 0">System health: every connection, automation and check is working.</p>`)
   }
   if (args.drafts.length) h.push(`<p style="font-size:14px;margin:18px 0 0"><a href="${link('matching')}" style="color:#0a72df">${args.drafts.length} synced draft${args.drafts.length > 1 ? 's' : ''}</a> waiting to be approved in Xero.</p>`)
   if (!late.length && !outs.length && !problems.length && !args.drafts.length) h.push(`<p style="font-size:14px">Nothing overdue, nothing due out and no Xero problems this week.</p>`)

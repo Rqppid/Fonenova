@@ -113,6 +113,20 @@ it replaces everything above for the ledger.
 
 Local `npm run dev` skips sign-in when `GOOGLE_CLIENT_ID` is unset. Production builds never do.
 
+## Watchdog (nothing fails silently)
+
+Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data
+source syncing, Xero and OneDrive connected, Xero refreshed in the last 30 hours, both Make
+scenarios on and their last run clean, Make credits, a sales invoice and a supplier bill in the
+last 7 days (red at 14), and no gaps in your invoice numbers. Settings shows the list, the
+status pill turns red, and the Friday email has a System health section.
+
+It then pings `HEALTHCHECK_URL` (a free [Healthchecks.io](https://healthchecks.io) check, period
+1 day, grace 6 hours): `/fail` with the problems when anything is red, a plain ping otherwise.
+Healthchecks emails you on a fail, and also when no ping arrives at all, so a stopped job, a
+Vercel outage or an expired connection is reported without anyone opening the dashboard.
+An invoice number deleted in Invoice2Go can be marked "never used" in Settings.
+
 ## Friday cash email
 
 Every Friday at 16:00 UTC (`vercel.json`, `/api/cron/digest`, locked by `CRON_SECRET`) the

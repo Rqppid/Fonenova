@@ -30,8 +30,9 @@ import { fxProfits, fxTotals, type FxProfit } from '@/lib/fx-profit'
 import { makeNeedsAttention, type MakeStatus } from '@/lib/make'
 import type { WeeklyEmailState } from '@/lib/weekly'
 import type { AskState } from '@/lib/ask/data'
+import type { HealthCheck } from '@/lib/health'
 import { DealChecker } from './deal-checker'
-import { AskCard, DraftsList, MakeCard, MarginVatCard, WeeklyEmailCard } from './automations'
+import { AskCard, WatchdogCard, DraftsList, MakeCard, MarginVatCard, WeeklyEmailCard } from './automations'
 import { AskBar } from './ask-bar'
 import { CurrencyNote, CurrencySwitch } from './currency-switch'
 import { CashPositionPanel } from './cash-position'
@@ -66,6 +67,7 @@ interface Props {
   make: MakeStatus | null
   weekly: WeeklyEmailState
   askState: AskState
+  health: HealthCheck[]
   gmailNotice: string | null
 }
 
@@ -95,7 +97,7 @@ const TITLES: Record<Section, string> = {
   settings: 'Settings',
 }
 
-function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, overheadsError, overheadsWritable, xero, notice, expenses, expenseOverrides, expensesError, sources, oneDrive, oneDriveNotice, hosted, settings, make, weekly, gmailNotice, askState }: Props) {
+function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, overheadsError, overheadsWritable, xero, notice, expenses, expenseOverrides, expensesError, sources, oneDrive, oneDriveNotice, hosted, settings, make, weekly, gmailNotice, askState, health }: Props) {
   const { fx } = useMoney()
   const [section, go] = useSection()
   // Reconcile against the untouched ledger; everything else uses Xero's live statuses where found.
@@ -163,6 +165,8 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
   )
   const drafts = useMemo(() => draftsAwaiting(xero.snapshot), [xero.snapshot])
   const makeAlert = makeNeedsAttention(make)
+  // Watchdog reds, except sync lines the pill already counts as sources needing attention.
+  const reds = health.filter((c) => c.level === 'red' && !c.id.startsWith('sync-'))
 
   // Overdue is the state now, not a period figure: every order, only the customer filter applies.
   const overdue = useMemo(() => overdueClients(filterOrders(ledger.orders, { customerId: customer }), today), [ledger.orders, customer, today])
@@ -202,7 +206,7 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
         title={TITLES[section]}
         subtitle={subtitle}
         search={<AskBar orders={ledger.orders} customers={ledger.customers} aiReady={askState.configured} onOpenOrder={setOpenOrderId} onPickCustomer={(id) => { setCustomerId(id); go('orders') }} go={go} />}
-        status={section === 'settings' ? null : <StatusPill sources={sources} checks={checks} note={xeroNote} alert={makeAlert ? 'A Make sync needs attention' : null}>{xeroBar}</StatusPill>}
+        status={section === 'settings' ? null : <StatusPill sources={sources} checks={checks} note={xeroNote} alert={reds.length ? `${reds.length} problem${reds.length > 1 ? 's' : ''} found: see Settings` : makeAlert ? 'A Make sync needs attention' : null}>{xeroBar}</StatusPill>}
         controls={section === 'settings' || section === 'deal-check' ? undefined : (
           <>
             <CurrencySwitch />
@@ -341,6 +345,7 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
             <h2 id="sources-title" className="mb-2 text-[15px] font-semibold text-ink">Data sources</h2>
             {xeroBar}
           </section>
+          <WatchdogCard checks={health} ignored={settings.ignoredInvoiceNumbers} writable={overheadsWritable} />
           <MakeCard make={make} />
           <WeeklyEmailCard state={weekly} notice={gmailNotice} />
           <AskCard state={askState} />

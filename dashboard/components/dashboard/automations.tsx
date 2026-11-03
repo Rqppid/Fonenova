@@ -1,13 +1,14 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CircleAlert, CircleCheck, ExternalLink, Mail, Sparkles, Workflow } from 'lucide-react'
+import { CircleAlert, CircleCheck, ExternalLink, Mail, ShieldCheck, Sparkles, Workflow } from 'lucide-react'
 import { useMoney } from '@/components/currency'
 import { formatDate } from '@/lib/periods'
 import { xeroLink } from '@/lib/xero/pairing'
 import type { MakeStatus } from '@/lib/make'
 import type { WeeklyEmailState } from '@/lib/weekly'
 import type { AskState } from '@/lib/ask/data'
+import type { HealthCheck } from '@/lib/health'
 import type { XeroInvoice } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -199,6 +200,48 @@ export function AskCard({ state }: { state: AskState }) {
         )}
         <p className="text-[12.5px] text-ink-3">Each question and the figures the tools return are sent to Anthropic&apos;s API, which does not train on API data by default. Nothing can be changed through it.</p>
       </div>
+    </section>
+  )
+}
+
+/** The watchdog: every check that could catch data quietly not arriving, with the fix for each. */
+export function WatchdogCard({ checks, ignored, writable }: { checks: HealthCheck[]; ignored: string[]; writable: boolean }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  const bad = checks.filter((c) => c.level !== 'ok').sort((a, b) => (a.level === b.level ? 0 : a.level === 'red' ? -1 : 1))
+  const good = checks.filter((c) => c.level === 'ok')
+  async function notUsed(numbers: string[]) {
+    setBusy(true)
+    await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ignoredInvoiceNumbers: [...ignored, ...numbers] }) }).catch(() => null)
+    router.refresh()
+    setBusy(false)
+  }
+  return (
+    <section aria-labelledby="watchdog-title" className={cn('rounded-lg border bg-surface', bad.some((c) => c.level === 'red') ? 'border-loss/40' : 'border-line')}>
+      <div className="border-b border-line px-5 py-3">
+        <h2 id="watchdog-title" className="flex items-center gap-1.5 text-[15px] font-semibold text-ink"><ShieldCheck className="h-4 w-4 text-ink-3" aria-hidden />Watchdog{bad.length ? <span className={cn('ml-1 font-normal', bad.some((c) => c.level === 'red') ? 'text-loss' : 'text-warn')}>{bad.length} to look at</span> : <span className="ml-1 font-normal text-gain">all clear</span>}</h2>
+        <p className="mt-0.5 text-[13px] leading-snug text-ink-2">Checked every morning: every connection, both Make scenarios, whether invoices and bills are still arriving, and gaps in your invoice numbers. A red item is emailed to you by the outside monitor (Healthchecks.io), which also emails if this check stops running, so you don&apos;t need to look here.</p>
+      </div>
+      <ul className="divide-y divide-line">
+        {bad.map((c) => (
+          <li key={c.id} className="px-5 py-3 text-[13.5px]">
+            <p className={cn('flex items-center gap-1.5 font-medium', c.level === 'red' ? 'text-loss' : 'text-warn')}><CircleAlert className="h-4 w-4 shrink-0" aria-hidden />{c.title}</p>
+            <p className="mt-0.5 pl-[22px] text-[13px] text-ink-2">{c.detail}</p>
+            {c.fix && <p className="mt-0.5 pl-[22px] text-[12.5px] text-ink-3"><span className="font-medium text-ink-2">Fix:</span> {c.fix}</p>}
+            {c.numbers && writable && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5 pl-[22px]">
+                {c.numbers.map((n) => <button key={n} type="button" disabled={busy} onClick={() => notUsed([n])} className="h-7 rounded-md border border-line px-2 text-[12px] text-ink-2 hover:text-ink disabled:opacity-50">{n} was never used</button>)}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {good.length > 0 && (
+        <details className="border-t border-line px-5 py-2.5 text-[13px] text-ink-2">
+          <summary className="cursor-pointer">{good.length} check{good.length > 1 ? 's' : ''} passing</summary>
+          <ul className="mt-1.5 space-y-1">{good.map((c) => <li key={c.id} className="flex items-center gap-1.5"><CircleCheck className="h-3.5 w-3.5 text-gain" aria-hidden /><span className="font-medium text-ink">{c.title}</span> · {c.detail}</li>)}</ul>
+        </details>
+      )}
     </section>
   )
 }

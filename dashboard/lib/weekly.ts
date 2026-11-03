@@ -10,6 +10,7 @@ import { todayIso } from './periods'
 import { getJson, getStore } from './store'
 import { syncSources } from './sync'
 import { draftsAwaiting } from './xero/pairing'
+import { loadHealth } from './watchdog'
 
 export interface DigestStatus {
   at: string
@@ -28,7 +29,7 @@ export async function lastDigest(): Promise<DigestStatus | null> {
 }
 
 export async function prepareDigest(): Promise<{ digest: Digest } | { error: string }> {
-  await syncSources({ force: true }) // fresh Xero and files before anything is sent
+  const sources = await syncSources({ force: true }) // fresh Xero and files before anything is sent
   const [result, xero, fx] = await Promise.all([getDataSource().load(), loadXeroState(), loadFxRate()])
   if (!result.ok) return { error: `${result.title}: ${result.detail}` }
   const today = todayIso()
@@ -40,6 +41,7 @@ export async function prepareDigest(): Promise<{ digest: Digest } | { error: str
     appUrl: process.env.AUTH_URL ?? 'http://localhost:3100',
     drafts: draftsAwaiting(xero.snapshot),
     problems: view.checks.items,
+    health: await loadHealth(sources).catch(() => undefined),
   })
   return { digest }
 }
