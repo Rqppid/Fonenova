@@ -301,14 +301,38 @@ export async function saveExpenseOverrides(o: ExpenseOverrides): Promise<void> {
 export interface AppSettings {
   /** Deduct margin-scheme VAT (1/6 of each positive margin) from net profit. Off until the accountant confirms. */
   marginSchemeVat: boolean
+  /** Invoice numbers the owner confirmed were never used, so the watchdog stops reporting them. */
+  ignoredInvoiceNumbers: string[]
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { marginSchemeVat: false }
+export const DEFAULT_SETTINGS: AppSettings = { marginSchemeVat: false, ignoredInvoiceNumbers: [] }
 
+const invoiceNumbers = (v: unknown): string[] | null =>
+  Array.isArray(v) && v.every((x) => typeof x === 'string' && /^[A-Za-z0-9/-]{1,30}$/.test(x)) ? [...new Set(v as string[])].slice(0, 200) : null
+
+/** A saved settings value, with defaults for anything older versions did not store. */
 export function validateSettings(input: unknown): AppSettings | null {
   if (!input || typeof input !== 'object') return null
-  const v = (input as Record<string, unknown>).marginSchemeVat
-  return typeof v === 'boolean' ? { marginSchemeVat: v } : null
+  const v = input as Record<string, unknown>
+  if (typeof v.marginSchemeVat !== 'boolean') return null
+  return { marginSchemeVat: v.marginSchemeVat, ignoredInvoiceNumbers: invoiceNumbers(v.ignoredInvoiceNumbers ?? []) ?? [] }
+}
+
+/** A change from the Settings page: any subset of the fields, each checked. */
+export function validateSettingsPatch(input: unknown): Partial<AppSettings> | null {
+  if (!input || typeof input !== 'object') return null
+  const v = input as Record<string, unknown>
+  const patch: Partial<AppSettings> = {}
+  if ('marginSchemeVat' in v) {
+    if (typeof v.marginSchemeVat !== 'boolean') return null
+    patch.marginSchemeVat = v.marginSchemeVat
+  }
+  if ('ignoredInvoiceNumbers' in v) {
+    const n = invoiceNumbers(v.ignoredInvoiceNumbers)
+    if (!n) return null
+    patch.ignoredInvoiceNumbers = n
+  }
+  return Object.keys(patch).length ? patch : null
 }
 
 export async function loadSettings(): Promise<AppSettings> {
