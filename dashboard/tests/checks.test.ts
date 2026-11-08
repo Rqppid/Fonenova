@@ -131,3 +131,28 @@ describe.skipIf(!fs.existsSync(real))('xeroChecks on the real ledger, with Xero 
     expect(r.supersedes.sort()).toEqual(['EX-01', 'EX-02', 'EX-10'])
   })
 })
+
+describe('draft credit notes', () => {
+  const base = { meta: { snapshotDate: '2026-10-04' }, exceptions: [], orders: [], customers: [], suppliers: [], lines: [] }
+  const snapOf = (creditNotes: XeroCreditNote[]): XeroSnapshot => ({ fetchedAt: '2026-11-07T06:00:00Z', tenantName: 'Fonenova Ltd', baseCurrency: 'GBP', invoices: [], creditNotes, bankBalances: null, problems: [] })
+  const draft = (number: string, kind: 'sale' | 'bill', total: number, date = '2026-11-07'): XeroCreditNote => ({ id: `d-${number}`, number, reference: '', kind, status: 'DRAFT', contactName: kind === 'sale' ? 'Wave Phone B.V.' : 'Mobile One Trade B.V.', currency: 'EUR', date, totalCents: total, allocatedTo: [] })
+
+  it('flags CN-202602 as a duplicate: Xero already credits 2026037 with FN-CN-202602 (and FN-CN-202601)', () => {
+    const ledger = { ...base, creditNotes: [
+      note({ side: 'client', number: 'FN-CN-202601', amountCents: 44_804_00, refersToInvoices: '2026034' }),
+      note({ side: 'client', number: 'FN-CN-202602', amountCents: 27_907_11, refersToInvoices: '2026037' }),
+    ] } as unknown as Ledger
+    const r = xeroChecks({ ledger, orders: [], snapshot: snapOf([credit('CN', 'sale', 72_711_11, [['2026037', 72_711_11]]), draft('CN-202602', 'sale', 27_907_11)]), today: '2026-11-07' })
+    expect(r.items.map((i) => [i.id, i.priority, i.impactCents])).toEqual([['X-CNDUP-d-CN-202602', 'HIGH', 27_907_11]])
+    expect(r.items[0].issue).toContain('FN-CN-202602')
+    expect(r.items[0].link).toContain('ViewCreditNote')
+  })
+
+  it('leaves a draft alone when it is the missing credit (2026080085), and nudges it after a week', () => {
+    const ledger = { ...base, creditNotes: [note({ side: 'supplier', number: '2026080085', amountCents: 31_456_00, refersToInvoices: '2026050049, 2026070068 & 2026070069', date: '2026-08-13' })] } as unknown as Ledger
+    const fresh = xeroChecks({ ledger, orders: [], snapshot: snapOf([draft('2026080085', 'bill', 31_456_00)]), today: '2026-11-07' })
+    expect(fresh.items.map((i) => i.id)).toEqual(['X-CREDIT-2026080085']) // still missing until approved; no duplicate warning
+    const old = xeroChecks({ ledger, orders: [], snapshot: snapOf([draft('2026080085', 'bill', 31_456_00, '2026-10-20')]), today: '2026-11-07' })
+    expect(old.items.map((i) => i.id).sort()).toEqual(['X-CNDRAFT-d-2026080085', 'X-CREDIT-2026080085'])
+  })
+})
