@@ -1,12 +1,14 @@
 'use client'
 import { useState } from 'react'
-import { AlertTriangle, Building2, Calculator, FileMinus2, LayoutDashboard, Link2, LogOut, Menu, Package, Receipt, Settings, Users } from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import { AlertTriangle, Building2, Calculator, Landmark, FileMinus2, LayoutDashboard, Link2, LogOut, Menu, Package, Receipt, Settings, Users } from 'lucide-react'
 import { BrandMark, BrandName } from '@/components/brand'
 import { Sheet } from '@/components/ui/sheet'
 import { useSection, type Section } from '@/lib/sections'
 import { cn } from '@/lib/utils'
 
-type Item = { id: Section; label: string; icon: typeof LayoutDashboard }
+/** A section of the main page (#id), or a page of its own (route). */
+type Item = { id: Section; label: string; icon: typeof LayoutDashboard; route?: never } | { route: string; label: string; icon: typeof LayoutDashboard; id?: never }
 
 const GROUPS: { title: string | null; items: Item[] }[] = [
   { title: null, items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
@@ -14,6 +16,7 @@ const GROUPS: { title: string | null; items: Item[] }[] = [
     { id: 'orders', label: 'Orders', icon: Package },
     { id: 'deal-check', label: 'Check a deal', icon: Calculator },
     { id: 'matching', label: 'Invoice matching', icon: Link2 },
+    { route: '/payments', label: 'Payments', icon: Landmark },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'credit-notes', label: 'Credit notes', icon: FileMinus2 },
   ] },
@@ -44,20 +47,28 @@ function Wordmark() {
 
 function Nav({ onPick, badges }: { onPick?: () => void; badges?: NavBadges }) {
   const [section, go] = useSection()
+  const path = usePathname()
+  const onMain = path === '/'
   return (
     <nav aria-label="Main" className="mt-6 space-y-4">
       {GROUPS.map((g) => (
         <div key={g.title ?? 'top'}>
           {g.title && <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-navy-ink/45">{g.title}</div>}
           <div className="space-y-0.5">
-            {g.items.map(({ id, label, icon: Icon }) => {
-              const active = id === section
-              const b = badges?.[id]
+            {g.items.map((item) => {
+              const { label, icon: Icon } = item
+              const active = item.route ? path === item.route : onMain && item.id === section
+              const b = item.id ? badges?.[item.id] : undefined
+              // Sections live on the main page: from another page they are ordinary links to /#id.
+              const href = item.route ?? (onMain ? (item.id === 'overview' ? '#' : `#${item.id}`) : item.id === 'overview' ? '/' : `/#${item.id}`)
               return (
                 <a
-                  key={id}
-                  href={id === 'overview' ? '#' : `#${id}`}
-                  onClick={(e) => { e.preventDefault(); go(id); onPick?.() }}
+                  key={item.route ?? item.id}
+                  href={href}
+                  onClick={(e) => {
+                    if (item.id && onMain) { e.preventDefault(); go(item.id) }
+                    onPick?.()
+                  }}
                   aria-current={active ? 'page' : undefined}
                   className={cn('flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13.5px]', active ? 'bg-white/[0.09] font-medium text-white' : 'text-navy-ink/85 hover:bg-white/[0.05] hover:text-white')}
                 >

@@ -113,6 +113,26 @@ it replaces everything above for the ledger.
 
 Local `npm run dev` skips sign-in when `GOOGLE_CLIENT_ID` is unset. Production builds never do.
 
+## Payments (Revolut EUR, read-only)
+
+`/payments` shows what the separate `fonenova-payments` service reports: open exceptions with
+ranked suggestions (allocate or dismiss, each behind a confirmation step), what each customer
+still owes and what is still owed to Mobile One per invoice, each payment on its own line, held
+customer overpayments, and the three Excel trackers. The dashboard never moves money and never
+recalculates balances; `remaining_cents` from the service is shown as is, in integer cents.
+
+- `lib/payments-source.ts` (server only) calls the service with `PAYMENTS_API_URL` and
+  `PAYMENTS_API_TOKEN`, `no-store`, 15 s timeout. Errors are plain words without the token,
+  the address or response bodies. Without the two variables (Preview, local) the page says
+  "Payments service not configured" rather than showing tables or zeros.
+- `/api/payments/{approve,dismiss,tracker}` check the dashboard session (`currentUser`), require
+  a same-origin request for changes, validate input (`lib/payments-validate.ts`: invoice
+  `^[0-9/]{1,20}$`, positive integer cents, a 3 to 300 character dismiss reason, tracker
+  `wave|tw|m1`) and forward only those fields.
+- Local development: `npm run mock-payments`, then
+  `PAYMENTS_API_URL=http://localhost:3299 PAYMENTS_API_TOKEN=dev-mock-token npm run dev`
+  (`MOCK_STALE=1` or `MOCK_DOWN=1` on the mock to see those states).
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data
