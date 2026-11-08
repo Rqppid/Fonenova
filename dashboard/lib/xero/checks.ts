@@ -261,7 +261,59 @@ export function xeroChecks(args: { ledger: Ledger; orders: readonly Order[]; sna
     })
   }
 
+  // 7. Draft credit notes: a duplicate of a credit already in Xero would double the credit if
+  // approved (Make's number check misses one Xero holds under another number, e.g. CN-202602
+  // vs FN-CN-202602). Others are nudged like any draft once they are a week old.
+  if (snapshot.creditNotes) {
+    const live = snapshot.creditNotes.filter(liveNote)
+    const missing = new Set(creditGaps(args.ledger.creditNotes, snapshot.creditNotes).map((g) => g.note.number))
+    for (const d of snapshot.creditNotes.filter((n) => n.status === 'DRAFT' && n.currency === 'EUR')) {
+      const side = d.kind === 'sale' ? 'client' : 'supplier'
+      const same = (c: number) => Math.abs(c - d.totalCents) <= TOLERANCE
+      const inXero = live.find((n) => n.kind === d.kind && same(n.totalCents) && (!n.contactName || !d.contactName || norm(n.contactName) === norm(d.contactName)))
+      // A ledger credit only counts as "already in Xero" when the gap check does not report it missing.
+      const inLedger = args.ledger.creditNotes.find((n) => n.side === side && same(n.amountCents) && !missing.has(n.number))
+      const twin = inXero ? `credit note ${inXero.number}${inXero.allocatedTo.length ? `, already applied to ${inXero.allocatedTo.join(', ')}` : ''}` : inLedger ? `credit ${inLedger.number} (${inLedger.date}), which Xero already holds against ${inLedger.refersToInvoices}` : null
+      if (twin) {
+        items.push({
+          id: `X-CNDUP-${d.id}`,
+          priority: 'HIGH',
+          source: 'Xero check',
+          reference: `Draft credit note ${d.number || d.reference}`,
+          orderId: null,
+          orderIds: [],
+          issue: `Draft ${d.number || d.reference} (${eur(d.totalCents)}, ${d.contactName}) duplicates ${twin}. Approving it would count the same credit twice.`,
+          impactCents: d.totalCents,
+          impactLabel: 'Would be doubled',
+          action: 'Delete the draft in Xero. Do not approve it.',
+          link: creditNoteLink(d),
+        })
+        continue
+      }
+      const age = d.date ? daysBetween(d.date, today) : 0
+      if (age <= DRAFT_DAYS) continue
+      items.push({
+        id: `X-CNDRAFT-${d.id}`,
+        priority: 'MEDIUM',
+        source: 'Xero check',
+        reference: `Draft credit note ${d.number || d.reference}`,
+        orderId: null,
+        orderIds: [],
+        issue: `Still a draft after ${age} days (${d.contactName}, ${eur(d.totalCents)}). Until approved, Xero overstates what ${d.kind === 'bill' ? 'you owe the supplier' : 'the customer owes you'}.`,
+        impactCents: d.totalCents,
+        impactLabel: 'Draft total',
+        action: 'Check it against the PDF, approve it, then allocate it to the invoice it names.',
+        link: creditNoteLink(d),
+      })
+    }
+  }
+
   return { items, supersedes: superseded(args.ledger.exceptions, args.orders, links, !!snapshot.creditNotes) }
+}
+
+/** Where to open a credit note in Xero. */
+function creditNoteLink(n: Pick<XeroCreditNote, 'id' | 'kind'>): string {
+  return `https://go.xero.com/${n.kind === 'sale' ? 'AccountsReceivable' : 'AccountsPayable'}/ViewCreditNote.aspx?creditNoteID=${encodeURIComponent(n.id)}`
 }
 
 /**
