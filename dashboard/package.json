@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "pack-ledger": "tsx scripts/pack-ledger.ts",
     "import-expenses": "tsx scripts/import-expenses.ts",
-    "push-online": "tsx scripts/push-online.ts"
+    "push-online": "tsx scripts/push-online.ts",
+    "mock-payments": "tsx scripts/mock-payments.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

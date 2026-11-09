@@ -113,12 +113,40 @@ it replaces everything above for the ledger.
 
 Local `npm run dev` skips sign-in when `GOOGLE_CLIENT_ID` is unset. Production builds never do.
 
+## Payments (Revolut EUR, read-only)
+
+`/payments` shows what the separate `fonenova-payments` service reports: open exceptions with
+ranked suggestions (allocate or dismiss, each behind a confirmation step), what each customer
+still owes and what is still owed to Mobile One per invoice, each payment on its own line, held
+customer overpayments, and the three Excel trackers. The dashboard never moves money and never
+recalculates balances; `remaining_cents` from the service is shown as is, in integer cents.
+
+- `lib/payments-source.ts` (server only) calls the service with `PAYMENTS_API_URL` and
+  `PAYMENTS_API_TOKEN`, `no-store`, 15 s timeout. Errors are plain words without the token,
+  the address or response bodies. Without the two variables (Preview, local) the page says
+  "Payments service not configured" rather than showing tables or zeros.
+- `/api/payments/{approve,dismiss,tracker}` check the dashboard session (`currentUser`), require
+  a same-origin request for changes, validate input (`lib/payments-validate.ts`: invoice
+  `^[0-9/]{1,20}$`, positive integer cents, a 3 to 300 character dismiss reason, tracker
+  `wave|tw|m1`) and forward only those fields. Approve also sends the chosen invoice's
+  `tracker`, for numbers that exist in two trackers.
+- A part allocation answers `{ok:true, still_unallocated_cents}`; the page shows that remainder
+  and the exception stays open for the rest.
+- X-REVERSAL, X-TOKEN, X-FETCH, X-BULK and any exception without a bank payment offer Dismiss
+  only. X-OVERPAY offers to place only the surplus. X-OUT-* codes allocate to Mobile One bills.
+- Local development: `npm run mock-payments`, then
+  `PAYMENTS_API_URL=http://localhost:3299 PAYMENTS_API_TOKEN=dev-mock-token npm run dev`
+  (`MOCK_STALE=1` or `MOCK_DOWN=1` on the mock to see those states).
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data
 source syncing, Xero and OneDrive connected, Xero refreshed in the last 30 hours, both Make
 scenarios on and their last run clean, Make credits, a sales invoice and a supplier bill in the
-last 7 days (red at 14), and no gaps in your invoice numbers. Settings shows the list, the
+last 7 days (red at 14), no gaps in your invoice numbers, and (where `PAYMENTS_API_URL` is set)
+the payments service's `/api/health`: red when it answers 503 `{ok:false}`, has not run for 30
+minutes, or cannot be reached within 7 s (4 s when the dashboard page itself checks, so a hung
+service cannot hold the page up). The service's `last_error` is shown as details, not the headline. Settings shows the list, the
 status pill turns red, and the Friday email has a System health section.
 
 It then pings `HEALTHCHECK_URL` (a free [Healthchecks.io](https://healthchecks.io) check, period

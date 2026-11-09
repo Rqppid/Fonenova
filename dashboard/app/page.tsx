@@ -38,7 +38,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const sources = connecting ? await syncSources({ force: true }) : await lastSources()
   if (!connecting) after(() => syncSources().then(() => undefined, () => undefined))
   const source = getDataSource()
-  const [result, fx, oh, xero, exp, oneDrive, settings, make, weekly, askState, health] = await Promise.all([source.load(), loadFxRate(), loadOverheads(), loadXeroState(), loadExpenses(), loadOneDriveState(), loadSettings(), loadMakeStatus(), loadWeeklyEmailState(), loadAskState(), loadHealth(sources).catch(() => [])])
+  const [result, fx, oh, xero, exp, oneDrive, settings, make, weekly, askState, health] = await Promise.all([source.load(), loadFxRate(), loadOverheads(), loadXeroState(), loadExpenses(), loadOneDriveState(), loadSettings(), loadMakeStatus(), loadWeeklyEmailState(), loadAskState(), loadHealth(sources, { paymentsTimeoutMs: 4_000 }).catch(() => [])])
 
   if (!result.ok) {
     return (

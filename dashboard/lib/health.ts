@@ -8,6 +8,7 @@
  * missing ping and emails you too, so silence really does mean all is well.
  */
 import type { MakeStatus } from './make'
+import type { PaymentsHealth, PaymentsResult } from './payments-types'
 import type { SourceStatus } from './sync-core'
 import type { IsoDate, XeroInvoice, XeroSnapshot } from './types'
 
@@ -36,12 +37,30 @@ export interface HealthInput {
   watchdogConfigured: boolean
   /** Invoice numbers the owner confirmed were never used (e.g. deleted in Invoice2Go). */
   ignoredInvoiceNumbers: string[]
+  /** The payments service's /api/health answer. Absent or not-configured: no check (Preview, local). */
+  payments?: PaymentsResult<PaymentsHealth>
 }
 
 const HOUR = 3_600_000
 const daysSince = (iso: string, now: Date) => Math.floor((now.getTime() - Date.parse(iso)) / (24 * HOUR))
 const QUIET_AMBER_DAYS = 7
 const QUIET_RED_DAYS = 14
+/** The payments service matches every few minutes; half an hour without a run means it stopped. */
+const PAYMENTS_STALE_MINUTES = 30
+
+function paymentsCheck(r: PaymentsResult<PaymentsHealth> | undefined): HealthCheck | null {
+  if (!r || r.kind === 'not-configured') return null
+  const fix = 'Check the fonenova-payments service. Until it runs cleanly again, new Revolut payments are not matched.'
+  if (r.kind !== 'ok') return { id: 'payments', level: 'red', title: 'Payments service unreachable', detail: r.kind === 'error' ? r.message : r.error, fix: 'Check the fonenova-payments service is running, and PAYMENTS_API_URL and PAYMENTS_API_TOKEN in Vercel.' }
+  const h = r.data
+  const mins = h.minutes_ago
+  const when = mins === null ? 'It has not run.' : `Last run ${mins < 90 ? `${Math.round(mins)} min` : `${Math.round(mins / 60)} h`} ago.`
+  // last_error is a short technical string from the service: shown as details, never the headline.
+  const details = h.last_error ? ` Details: ${h.last_error}` : ''
+  if (mins === null || mins > PAYMENTS_STALE_MINUTES) return { id: 'payments', level: 'red', title: 'Payments matching has stopped', detail: `${when}${details}`, fix }
+  if (!h.ok) return { id: 'payments', level: 'red', title: 'Payments matching failed its last run', detail: `${when}${details}`, fix }
+  return { id: 'payments', level: 'ok', title: 'Payments matching', detail: when }
+}
 
 /**
  * Numbers missing from your own invoice run, e.g. 2026038, 2026040 → 2026039. Only numbers made
@@ -127,6 +146,10 @@ export function healthChecks(h: HealthInput): HealthCheck[] {
     const { creditsUsed: used, creditsLimit: limit } = h.make
     if (used !== null && limit !== null && used >= limit * 0.8) add({ id: 'make-credits', level: used >= limit * 0.95 ? 'red' : 'amber', title: 'Make credits nearly used up', detail: `${used.toLocaleString('en-GB')} of ${limit.toLocaleString('en-GB')} this period. At zero every scenario stops.`, fix: 'Upgrade the Make plan or wait for the reset.' })
   }
+
+  // Revolut payment matching (the fonenova-payments service).
+  const pay = paymentsCheck(h.payments)
+  if (pay) add(pay)
 
   // The alert channels themselves.
   if (h.gmail.configured && !h.gmail.connected) add({ id: 'gmail', level: 'amber', title: 'Friday email is not connected', detail: 'No weekly summary will be sent.', fix: 'Settings → Connect Gmail.' })

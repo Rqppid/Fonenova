@@ -77,3 +77,17 @@ describe('settings', () => {
     expect(validateSettingsPatch({})).toBeNull()
   })
 })
+
+describe('payments service in the watchdog', () => {
+  const pay = (payments: HealthInput['payments']) => healthChecks(base({ payments })).find((c) => c.id === 'payments')
+  it('is red when stale (a 503 with ok:false), red when unreachable, green when fresh, absent when not configured', () => {
+    expect(pay({ kind: 'ok', data: { ok: false, last_run: '2026-11-08T07:10:00Z', minutes_ago: 168, last_error: 'Revolut token expired' } })).toMatchObject({ level: 'red', title: 'Payments matching has stopped' })
+    expect(pay({ kind: 'ok', data: { ok: false, last_run: null, minutes_ago: 3, last_error: 'HTTP 401 from Revolut' } })).toMatchObject({ level: 'red', title: 'Payments matching failed its last run', detail: 'Last run 3 min ago. Details: HTTP 401 from Revolut' })
+    expect(pay({ kind: 'ok', data: { ok: true, last_run: null, minutes_ago: 45, last_error: null } })?.level).toBe('red')
+    expect(pay({ kind: 'error', message: 'The payments service could not be reached.' })).toMatchObject({ level: 'red', title: 'Payments service unreachable' })
+    expect(pay({ kind: 'ok', data: { ok: true, last_run: null, minutes_ago: 4, last_error: null } })?.level).toBe('ok')
+    expect(pay({ kind: 'not-configured' })).toBeUndefined()
+    expect(pay(undefined)).toBeUndefined()
+    expect(healthSummary(healthChecks(base({ payments: { kind: 'ok', data: { ok: false, last_run: null, minutes_ago: 168, last_error: 'Revolut token expired' } } })))).toContain('Revolut token expired')
+  })
+})
