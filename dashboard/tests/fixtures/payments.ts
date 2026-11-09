@@ -73,6 +73,21 @@ export function paymentsFixture(): PaymentsState {
         suggestions: [{ invoice: '2026100105', invoice_id: 9, remaining_cents: 156_500_00, why: 'Named in the reference' }],
         bank_event: { date: '2026-11-06', amount_cents: 160_000_00, reference: '2026100105', description: 'MOBILE ONE TRADE BV' },
       },
+      {
+        id: 44, code: 'X-REVERSAL', severity: 'MEDIUM', detail: 'Revolut reversed an earlier incoming payment from Wave Phone.', created_at: '2026-11-05T09:30:00Z',
+        suggestions: [{ invoice: '2026044', invoice_id: 6, remaining_cents: 43_954_94, why: 'The reversed payment was on this invoice' }],
+        bank_event: { date: '2026-11-05', amount_cents: -5_000_00, reference: 'REVERSAL', description: 'WAVE PHONE B.V.' },
+      },
+      {
+        id: 45, code: 'X-TOKEN', severity: 'HIGH', detail: 'The Revolut access token expires in 3 days.', created_at: '2026-11-08T06:00:00Z',
+        suggestions: [],
+        bank_event: null,
+      },
+      {
+        id: 46, code: 'X-OVERPAY', severity: 'LOW', detail: 'TradeWise paid €20.00 more than invoice 2026028 needed.', created_at: '2026-11-01T12:00:00Z',
+        suggestions: [{ invoice: '2026046', invoice_id: 7, remaining_cents: 258_810_00, why: 'Open invoice for the same party group' }],
+        bank_event: { date: '2026-11-01', amount_cents: 24_300_00, reference: '2026028', description: 'TRADEWISE' },
+      },
     ],
     held_surplus: [{ party: 'TradeWise', amount_cents: 20_00, bank_event_id: 'rv-5' }],
   }

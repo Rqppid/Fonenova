@@ -77,3 +77,16 @@ describe('settings', () => {
     expect(validateSettingsPatch({})).toBeNull()
   })
 })
+
+describe('payments service in the watchdog', () => {
+  const pay = (payments: HealthInput['payments']) => healthChecks(base({ payments })).find((c) => c.id === 'payments')
+  it('is red when stale (a 503 with ok:false), red when unreachable, green when fresh, absent when not configured', () => {
+    expect(pay({ kind: 'ok', data: { ok: false, last_run: '2026-11-08T07:10:00Z', minutes_ago: 168, last_error: 'Revolut token expired' } })).toMatchObject({ level: 'red', title: 'Payments matching is stale' })
+    expect(pay({ kind: 'ok', data: { ok: true, last_run: null, minutes_ago: 45, last_error: null } })?.level).toBe('red')
+    expect(pay({ kind: 'error', message: 'The payments service could not be reached.' })).toMatchObject({ level: 'red', title: 'Payments service unreachable' })
+    expect(pay({ kind: 'ok', data: { ok: true, last_run: null, minutes_ago: 4, last_error: null } })?.level).toBe('ok')
+    expect(pay({ kind: 'not-configured' })).toBeUndefined()
+    expect(pay(undefined)).toBeUndefined()
+    expect(healthSummary(healthChecks(base({ payments: { kind: 'ok', data: { ok: false, last_run: null, minutes_ago: 168, last_error: 'Revolut token expired' } } })))).toContain('Revolut token expired')
+  })
+})

@@ -90,6 +90,23 @@ describe('approve and dismiss routes', () => {
     expect(refused.headers.get('cache-control')).toBe('no-store')
   })
 
+  it('forward the tracker only when it is one of the three, and refuse anything else', async () => {
+    const { POST } = await import('@/app/api/payments/approve/route')
+    expect((await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026046', tracker: 'wave' }))).status).toBe(200)
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ exception_id: 41, invoice: '2026046', tracker: 'wave' })
+    expect((await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026046', tracker: 'x' }))).status).toBe(400)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('pass on how much of a part-allocated payment is still unallocated', async () => {
+    vi.stubGlobal('fetch', reply(200, { ok: true, still_unallocated_cents: 2_520_000 }))
+    const { POST } = await import('@/app/api/payments/approve/route')
+    const r = await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026044', amount_cents: 1_000_000 }))
+    expect(await r.json()).toEqual({ ok: true, still_unallocated_cents: 2_520_000 })
+    vi.stubGlobal('fetch', reply(200, { ok: true, still_unallocated_cents: 'lots' }))
+    expect(await (await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026044' }))).json()).toEqual({ ok: true })
+  })
+
   it('dismiss sends the reason, trimmed, to the approve endpoint', async () => {
     const { POST } = await import('@/app/api/payments/dismiss/route')
     expect((await POST(post('/api/payments/dismiss', { exception_id: 42, dismiss_reason: '  Revolut refund  ' }))).status).toBe(200)
@@ -118,6 +135,16 @@ describe('payments data layer', () => {
     }
   })
 
+  it('reads a 503 from /api/health as stale health data, not as an outage', async () => {
+    const { getHealth } = await import('@/lib/payments-source')
+    vi.stubGlobal('fetch', reply(503, { ok: false, last_run: '2026-11-08T07:10:00Z', minutes_ago: 168, last_error: 'Revolut token expired' }))
+    expect(await getHealth()).toEqual({ kind: 'ok', data: { ok: false, last_run: '2026-11-08T07:10:00Z', minutes_ago: 168, last_error: 'Revolut token expired' } })
+    vi.stubGlobal('fetch', reply(503, 'Service Unavailable'))
+    expect((await getHealth()).kind).toBe('error')
+    vi.stubGlobal('fetch', reply(500, { ok: false }))
+    expect((await getHealth()).kind).toBe('error')
+  })
+
   it('keeps customer and Mobile One balances apart, per party, from the service figures', async () => {
     const { partyTotals } = await import('@/lib/payments-source')
     const s = paymentsFixture()
@@ -140,6 +167,31 @@ describe('Payments page rendering', () => {
     const credited = render(h(InvoiceDetail, { invoice: paymentsFixture().supplier_invoices[1] }))
     expect(credited).toContain('Credit notes applied to this invoice')
     expect(credited).toContain('(credited)')
+  })
+
+  it('offers only Dismiss where there is nothing to allocate, and the surplus for an overpayment', async () => {
+    const { exceptionActions } = await import('@/components/payments/payments-view')
+    const ev = { date: '2026-11-01', amount_cents: 100, reference: '', description: '' }
+    const pick = (code: string, bank_event: typeof ev | null = ev) => exceptionActions({ code, bank_event })
+    for (const code of ['X-REVERSAL', 'X-TOKEN', 'X-FETCH', 'X-BULK']) expect(pick(code).allocate, code).toBe(false)
+    expect(pick('X-NO-REF', null).allocate).toBe(false) // no bank payment attached
+    expect(pick('X-NO-REF')).toEqual({ allocate: true, why: null, side: 'customer', surplusOnly: false })
+    expect(pick('X-OVERPAY')).toMatchObject({ allocate: true, surplusOnly: true })
+    for (const code of ['X-OUT-UNKNOWN-ACCT', 'X-OUT-BAD-REF', 'X-OUT-OVER', 'X-OUT-NEW']) expect(pick(code).side, code).toBe('supplier')
+  })
+
+  it('shows no Allocate button on reversal or token items', async () => {
+    const { Exceptions } = await import('@/components/payments/payments-view')
+    const s = paymentsFixture()
+    const one = (id: number) => render(h(Exceptions, { items: s.exceptions.filter((e) => e.id === id), customerInvoices: s.customer_invoices, supplierInvoices: s.supplier_invoices }))
+    for (const id of [44, 45]) {
+      const html = one(id)
+      expect(html, String(id)).not.toMatch(/Allocate to|Another invoice/)
+      expect(html).toContain('Nothing to allocate')
+      expect(html).toContain('Dismiss')
+    }
+    expect(one(46)).toContain('Put the surplus on 2026046')
+    expect(one(41)).toContain('Allocate to 2026046')
   })
 
   it('marks stale data in words, with the last error', async () => {

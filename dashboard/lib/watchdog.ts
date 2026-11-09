@@ -10,18 +10,20 @@ import { loadOneDriveState, loadSettings, loadXeroState } from './data-source'
 import { gmailConfig, gmailConnected } from './gmail'
 import { healthChecks, healthSummary, type HealthCheck } from './health'
 import { loadMakeStatus } from './make'
+import { getHealth as getPaymentsHealth } from './payments-source'
 import { todayIso } from './periods'
 import type { SourceStatus } from './sync-core'
 
 const makeConfigured = () => !!(process.env.MAKE_API_TOKEN && process.env.MAKE_SCENARIOS)
 
 export async function loadHealth(sources: SourceStatus[]): Promise<HealthCheck[]> {
-  const [xero, oneDrive, make, settings, gmail] = await Promise.all([
+  const [xero, oneDrive, make, settings, gmail, payments] = await Promise.all([
     loadXeroState(),
     loadOneDriveState(),
     loadMakeStatus(),
     loadSettings(),
     gmailConfig() ? gmailConnected().then((g) => ({ configured: true, connected: g.connected }), () => ({ configured: true, connected: false })) : Promise.resolve({ configured: false, connected: false }),
+    getPaymentsHealth(),
   ])
   return healthChecks({
     now: new Date(),
@@ -34,6 +36,7 @@ export async function loadHealth(sources: SourceStatus[]): Promise<HealthCheck[]
     gmail,
     watchdogConfigured: !!process.env.HEALTHCHECK_URL,
     ignoredInvoiceNumbers: settings.ignoredInvoiceNumbers,
+    payments,
   })
 }
 

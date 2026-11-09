@@ -17,7 +17,7 @@ export function paymentsConfig(): { url: string; token: string } | null {
   return url && token ? { url: url.replace(/\/$/, ''), token } : null
 }
 
-async function call(path: string, init: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<PaymentsResult<Response>> {
+async function call(path: string, init: { method?: 'GET' | 'POST'; body?: unknown; okStatuses?: number[]; timeoutMs?: number } = {}): Promise<PaymentsResult<Response>> {
   const c = paymentsConfig()
   if (!c) return { kind: 'not-configured' }
   let res: Response
@@ -27,13 +27,13 @@ async function call(path: string, init: { method?: 'GET' | 'POST'; body?: unknow
       headers: { authorization: `Bearer ${c.token}`, accept: 'application/json', ...(init.body ? { 'content-type': 'application/json' } : {}) },
       ...(init.body ? { body: JSON.stringify(init.body) } : {}),
       cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(init.timeoutMs ?? TIMEOUT_MS),
     })
   } catch (e) {
     const timeout = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
     return { kind: 'error', message: timeout ? 'The payments service did not answer in time.' : 'The payments service could not be reached.' }
   }
-  if (res.ok) return { kind: 'ok', data: res }
+  if (res.ok || init.okStatuses?.includes(res.status)) return { kind: 'ok', data: res }
   if (res.status === 400 || res.status === 409) {
     // The service explains a refusal in {error}; pass that sentence on, nothing else.
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null
@@ -61,12 +61,39 @@ export async function getState(): Promise<PaymentsResult<PaymentsState>> {
   return r
 }
 
+/**
+ * The service's own health. It answers 503 with {ok:false,…} when its matching is stale or
+ * failing: that is a finding (red in the watchdog), not a connection error, so a 503 that carries
+ * health data is read as data. A 503 without it is still an error.
+ */
 export async function getHealth(): Promise<PaymentsResult<PaymentsHealth>> {
-  return json<PaymentsHealth>(await call('/api/health'))
+  // Short timeout: the watchdog runs on every dashboard load, which must not wait on this.
+  const r = await json<Partial<PaymentsHealth>>(await call('/api/health', { okStatuses: [503], timeoutMs: 4_000 }))
+  if (r.kind !== 'ok') return r
+  const h = r.data
+  if (!h || typeof h.ok !== 'boolean') return { kind: 'error', message: 'The payments service sent health data in an unexpected shape.' }
+  return {
+    kind: 'ok',
+    data: {
+      ok: h.ok,
+      last_run: typeof h.last_run === 'string' ? h.last_run : null,
+      minutes_ago: typeof h.minutes_ago === 'number' && Number.isFinite(h.minutes_ago) ? h.minutes_ago : null,
+      last_error: typeof h.last_error === 'string' ? h.last_error.slice(0, 300) : null,
+    },
+  }
 }
 
-export async function approve(body: { exception_id: number; invoice: string; amount_cents?: number }): Promise<PaymentsResult<{ ok: true }>> {
-  return json<{ ok: true }>(await call('/api/approve', { method: 'POST', body }))
+export type ApproveOutcome = { ok: true; still_unallocated_cents?: number }
+
+/**
+ * Allocate. A part allocation answers {ok:true, still_unallocated_cents:N}: the exception stays
+ * open for the rest, and the page shows N to the owner.
+ */
+export async function approve(body: { exception_id: number; invoice: string; amount_cents?: number; tracker?: Tracker }): Promise<PaymentsResult<ApproveOutcome>> {
+  const r = await json<{ still_unallocated_cents?: unknown }>(await call('/api/approve', { method: 'POST', body }))
+  if (r.kind !== 'ok') return r
+  const left = r.data?.still_unallocated_cents
+  return { kind: 'ok', data: { ok: true, ...(typeof left === 'number' && Number.isSafeInteger(left) && left >= 0 ? { still_unallocated_cents: left } : {}) } }
 }
 
 export async function dismiss(body: { exception_id: number; dismiss_reason: string }): Promise<PaymentsResult<{ ok: true }>> {

@@ -99,6 +99,32 @@ export function Freshness({ state }: { state: Pick<PaymentsState, 'health' | 'ge
 
 type Action = { item: ExceptionItem; mode: 'approve'; invoice: string; remaining: number | null } | { item: ExceptionItem; mode: 'dismiss' }
 
+/** Payments going out to Mobile One. Named by the service; the prefix catches any new ones. */
+const OUTGOING = new Set(['X-OUT-UNKNOWN-ACCT', 'X-OUT-BAD-REF', 'X-OUT-OVER'])
+/** Information only, per the service: there is nothing to allocate, so only Dismiss is offered. */
+const DISMISS_ONLY: Record<string, string> = {
+  'X-REVERSAL': 'This is a reversal of an earlier payment.',
+  'X-TOKEN': 'This is about the service’s bank connection, not a payment.',
+  'X-FETCH': 'This is about the service fetching bank data, not a payment.',
+  'X-BULK': 'This is about a bulk bank transfer, not one payment.',
+}
+
+export interface ExceptionActions {
+  allocate: boolean
+  /** Why Allocate is not offered, shown to the owner. */
+  why: string | null
+  /** Which invoices the payment can go to. */
+  side: 'supplier' | 'customer'
+  /** X-OVERPAY: the payment is already applied; allocating places only its surplus. */
+  surplusOnly: boolean
+}
+
+export function exceptionActions(e: Pick<ExceptionItem, 'code' | 'bank_event'>): ExceptionActions {
+  const side = OUTGOING.has(e.code) || e.code.startsWith('X-OUT') ? 'supplier' : 'customer'
+  const why = DISMISS_ONLY[e.code] ?? (e.bank_event ? null : 'There is no bank payment attached.')
+  return { allocate: why === null, why: why && `Nothing to allocate: ${why[0].toLowerCase()}${why.slice(1)}`, side, surplusOnly: e.code === 'X-OVERPAY' }
+}
+
 export function Exceptions({ items, customerInvoices, supplierInvoices }: { items: ExceptionItem[]; customerInvoices: Invoice[]; supplierInvoices: Invoice[] }) {
   const [action, setAction] = useState<Action | null>(null)
   const sorted = useMemo(() => [...items].sort((a, b) => RANK[a.severity] - RANK[b.severity] || b.created_at.localeCompare(a.created_at)), [items])
@@ -125,20 +151,27 @@ export function Exceptions({ items, customerInvoices, supplierInvoices }: { item
                 <div className="min-w-0"><dt className="text-[11.5px] text-ink-3">Reference</dt><dd className="truncate text-ink">{e.bank_event.reference || '—'}</dd></div>
               </dl>
             ) : <p className="mt-2 text-[13px] text-ink-3">No bank transaction attached.</p>}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {e.suggestions.map((s: Suggestion, i) => (
-                <Button key={s.invoice_id} variant={i === 0 ? 'primary' : 'default'} size="sm" onClick={() => setAction({ item: e, mode: 'approve', invoice: s.invoice, remaining: s.remaining_cents })} title={s.why}>
-                  Allocate to {s.invoice} · remaining {eur(s.remaining_cents)}
-                </Button>
-              ))}
-              <Button size="sm" variant="outline" onClick={() => setAction({ item: e, mode: 'approve', invoice: '', remaining: null })}>Another invoice…</Button>
-              <Button size="sm" variant="ghost" onClick={() => setAction({ item: e, mode: 'dismiss' })}>Dismiss</Button>
-            </div>
-            {e.suggestions.length > 0 && <p className="mt-1.5 text-[12px] text-ink-3">Why: {e.suggestions.map((s) => `${s.invoice}: ${s.why}`).join(' · ')}</p>}
+            {(() => {
+              const can = exceptionActions(e)
+              return (<>
+                {can.why && <p className="mt-2 text-[13px] text-ink-2" data-testid="dismiss-only">{can.why} You can dismiss it once you have checked it.</p>}
+                {can.surplusOnly && <p className="mt-2 text-[13px] text-ink-2">This payment is already applied to its invoice. Allocating places only the surplus.</p>}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {can.allocate && e.suggestions.map((s: Suggestion, i) => (
+                    <Button key={s.invoice_id} variant={i === 0 ? 'primary' : 'default'} size="sm" onClick={() => setAction({ item: e, mode: 'approve', invoice: s.invoice, remaining: s.remaining_cents })} title={s.why} className="h-auto min-h-8 max-w-full shrink whitespace-normal py-1.5 text-left">
+                      {can.surplusOnly ? 'Put the surplus on' : 'Allocate to'} {s.invoice} · remaining {eur(s.remaining_cents)}
+                    </Button>
+                  ))}
+                  {can.allocate && <Button size="sm" variant="outline" onClick={() => setAction({ item: e, mode: 'approve', invoice: '', remaining: null })}>Another invoice…</Button>}
+                  <Button size="sm" variant={can.allocate ? 'ghost' : 'outline'} onClick={() => setAction({ item: e, mode: 'dismiss' })}>Dismiss</Button>
+                </div>
+                {can.allocate && e.suggestions.length > 0 && <p className="mt-1.5 text-[12px] text-ink-3">Why: {e.suggestions.map((s) => `${s.invoice}: ${s.why}`).join(' · ')}</p>}
+              </>)
+            })()}
           </li>
         ))}
       </ul>
-      <ActionSheet action={action} onClose={() => setAction(null)} invoices={action && /^X-OUT/.test(action.item.code) ? supplierInvoices : customerInvoices} />
+      <ActionSheet action={action} onClose={() => setAction(null)} invoices={action && exceptionActions(action.item).side === 'supplier' ? supplierInvoices : customerInvoices} />
     </section>
   )
 }
@@ -151,8 +184,9 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
   const [part, setPart] = useState('')
   const [reason, setReason] = useState('')
   const [chosen, setChosen] = useState('')
+  const [leftOver, setLeftOver] = useState<number | null>(null)
   const open = invoices.filter((i) => i.remaining_cents > 0 && i.state !== 'cancelled')
-  const close = () => { setError(null); setPart(''); setReason(''); setChosen(''); onClose() }
+  const close = () => { setError(null); setPart(''); setReason(''); setChosen(''); setLeftOver(null); onClose() }
   if (!action) return <Sheet open={false} onOpenChange={() => {}} title="">{null}</Sheet>
 
   const ev = action.item.bank_event
@@ -165,13 +199,20 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
     if (!action) return
     setBusy(true)
     setError(null)
+    // The tracker tells the service which invoice is meant when a number exists in two trackers.
+    const tracker = invoices.find((i) => i.number === invoice)?.tracker
     const body = action.mode === 'approve'
-      ? { exception_id: action.item.id, invoice, ...(partCents ? { amount_cents: partCents } : {}) }
+      ? { exception_id: action.item.id, invoice, ...(partCents ? { amount_cents: partCents } : {}), ...(tracker ? { tracker } : {}) }
       : { exception_id: action.item.id, dismiss_reason: reason }
     const res = await fetch(action.mode === 'approve' ? '/api/payments/approve' : '/api/payments/dismiss', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
-    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string; still_unallocated_cents?: number } | null
     setBusy(false)
-    if (res?.ok && out?.ok) {
+    if (res?.ok && out?.ok && typeof out.still_unallocated_cents === 'number' && out.still_unallocated_cents > 0) {
+      // Part allocated: the exception stays open for the rest. Say so before closing.
+      setLeftOver(out.still_unallocated_cents)
+      setPart('')
+      router.refresh()
+    } else if (res?.ok && out?.ok) {
       close()
       router.refresh()
     } else {
@@ -180,9 +221,16 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o && !busy) close() }} title={action.mode === 'approve' ? 'Allocate this payment' : 'Dismiss this exception'} className="max-w-[520px]">
+    <Sheet open onOpenChange={(o) => { if (!o && !busy) close() }} title={leftOver !== null ? 'Part allocated' : action.mode === 'approve' ? 'Allocate this payment' : 'Dismiss this exception'} className="max-w-[520px]">
       <div className="space-y-4 p-5 text-[14px]">
-        {action.mode === 'approve' ? (
+        {leftOver !== null ? (
+          <div className="space-y-4">
+            <p role="status" data-testid="still-unallocated" className="rounded-md border border-gain/30 bg-gain-soft px-3 py-2.5 leading-relaxed text-ink">
+              Allocated. <strong>{eur(leftOver)}</strong> of this payment is still unallocated, so the item stays open in Needs attention for the rest.
+            </p>
+            <Button variant="primary" onClick={close}>Done</Button>
+          </div>
+        ) : action.mode === 'approve' ? (
           <>
             {!action.invoice && (
               <label className="block">
@@ -194,7 +242,7 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
               </label>
             )}
             <p className="rounded-md bg-subtle px-3 py-2.5 leading-relaxed text-ink" data-testid="confirm-text">
-              {invoice ? <>Allocate <strong>{partCents && !partBad ? eur(partCents) : ev ? eur(ev.amount_cents) : 'the payment'}</strong>{ev ? <> {/^X-OUT/.test(action.item.code) ? 'paid to' : 'received from'} <strong>{ev.description || 'unknown'}</strong> on {day(ev.date)}</> : null} to invoice <strong>{invoice}</strong>{remaining !== null ? <>, which has <strong>{eur(remaining)}</strong> remaining</> : null}.</> : 'Choose the invoice this payment belongs to.'}
+              {invoice && exceptionActions(action.item).surplusOnly ? <>Only the unallocated surplus of this payment is placed on invoice <strong>{invoice}</strong>{remaining !== null ? <>, which has <strong>{eur(remaining)}</strong> remaining</> : null}. The part already applied stays where it is.</> : invoice ? <>Allocate <strong>{partCents && !partBad ? eur(partCents) : ev ? eur(ev.amount_cents) : 'the payment'}</strong>{ev ? <> {exceptionActions(action.item).side === 'supplier' ? 'paid to' : 'received from'} <strong>{ev.description || 'unknown'}</strong> on {day(ev.date)}</> : null} to invoice <strong>{invoice}</strong>{remaining !== null ? <>, which has <strong>{eur(remaining)}</strong> remaining</> : null}.</> : 'Choose the invoice this payment belongs to.'}
             </p>
             <label className="block">
               <span className="mb-1 block text-[12.5px] font-medium text-ink-2">Only part of it? Amount in € (optional)</span>
@@ -209,13 +257,13 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
             <span className="mt-1 block text-[12.5px] text-ink-3">The exception closes with this reason. No money is moved and no invoice changes.</span>
           </label>
         )}
-        {error && <p role="alert" className="rounded-md border border-loss/30 bg-loss-soft px-3 py-2 text-[13.5px] text-loss">Not done: {error}</p>}
-        <div className="flex flex-wrap gap-2">
+        {leftOver === null && error && <p role="alert" className="rounded-md border border-loss/30 bg-loss-soft px-3 py-2 text-[13.5px] text-loss">Not done: {error}</p>}
+        {leftOver === null && <div className="flex flex-wrap gap-2">
           <Button variant="primary" onClick={submit} disabled={busy || (action.mode === 'approve' ? !invoice || partBad : reason.trim().length < 3)}>
             {busy ? 'Saving…' : action.mode === 'approve' ? 'Confirm allocation' : 'Dismiss exception'}
           </Button>
           <Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button>
-        </div>
+        </div>}
       </div>
     </Sheet>
   )
