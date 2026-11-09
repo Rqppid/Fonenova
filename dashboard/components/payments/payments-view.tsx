@@ -11,7 +11,7 @@ import { formatDate } from '@/lib/periods'
 import { TRACKERS, type ExceptionItem, type Invoice, type PaymentsResult, type PaymentsState, type Suggestion } from '@/lib/payments-types'
 import { cn } from '@/lib/utils'
 
-export type PartyTotal = { party: string; remainingCents: number; open: number }
+export type PartyTotal = { party: string; remainingCents: number; openCents: number; favourCents: number; open: number }
 
 const day = (d: string | null) => (d ? formatDate(d.slice(0, 10)) : 'no date')
 const RANK = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const
@@ -273,6 +273,25 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
 // Invoices, each payment on its own line
 // ---------------------------------------------------------------------------
 
+/**
+ * A party's balance. When some invoices are in your favour (credits or overpayments not yet set
+ * off), the open amount, that amount and the net are shown apart, so the net never hides money
+ * still to be recovered or set off.
+ */
+export function PartyBalance({ t, supplier }: { t: PartyTotal; supplier: boolean }) {
+  const net = supplier ? 'You owe' : 'Owes you'
+  if (!t.favourCents) {
+    return <p className="text-[13.5px] text-ink-2" data-testid="party-balance">{net} <strong className="tabular-nums text-ink">{eur(t.remainingCents)}</strong> · {t.open} open</p>
+  }
+  return (
+    <p className="flex flex-wrap justify-end gap-x-3 gap-y-0.5 text-right text-[13.5px] text-ink-2" data-testid="party-balance">
+      <span>{supplier ? 'Open bills' : 'Open invoices'} <strong className="tabular-nums text-ink">{eur(t.openCents)}</strong></span>
+      <span>{supplier ? 'In your favour' : 'In their favour'} <strong className="tabular-nums text-gain">{eur(t.favourCents)}</strong> <span className="text-[12.5px]">({supplier ? 'credits and overpayments not yet set off' : 'overpaid, not yet applied'})</span></span>
+      <span>Net {net.toLowerCase()} <strong className="tabular-nums text-ink">{eur(t.remainingCents)}</strong> · {t.open} open</span>
+    </p>
+  )
+}
+
 export function InvoiceGroups({ title, subtitle, invoices, totals, owingWord }: { title: string; subtitle: string; invoices: Invoice[]; totals: PartyTotal[]; owingWord: string }) {
   const [settled, setSettled] = useState(false)
   const [open, setOpen] = useState<Invoice | null>(null)
@@ -295,10 +314,7 @@ export function InvoiceGroups({ title, subtitle, invoices, totals, owingWord }: 
           <div key={party} className="border-b border-line last:border-b-0">
             <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-3">
               <h3 className="text-[14px] font-semibold text-ink">{party}</h3>
-              <p className="text-[13.5px] text-ink-2">
-                {owingWord === 'you owe' ? 'You owe' : 'Owes you'} <strong className="tabular-nums text-ink">{eur(t.remainingCents)}</strong>
-                {t.remainingCents < 0 && <span> ({owingWord === 'you owe' ? 'in your favour: credits or overpayment' : 'overpaid or credited'})</span>} · {t.open} open
-              </p>
+              <PartyBalance t={t} supplier={owingWord === 'you owe'} />
             </div>
             {rows.length === 0 ? <p className="px-5 pb-3 pt-1 text-[13px] text-ink-3">Nothing open.</p> : (<>
               {/* Phone: one card per invoice, the remaining balance always in view. */}
