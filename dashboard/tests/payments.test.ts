@@ -194,13 +194,18 @@ describe('Payments page rendering', () => {
     expect(one(41)).toContain('Allocate to 2026046')
   })
 
-  it('shows open, in your favour and net apart when credits are not yet set off, one line otherwise', async () => {
+  it('labels a balance below zero by party type: Mobile One owes you, an overpaid customer is owed', async () => {
     const { PartyBalance } = await import('@/components/payments/payments-view')
-    const both = render(h(PartyBalance, { t: { party: 'Mobile One Trade B.V.', remainingCents: 112_832_00, openCents: 156_500_00, favourCents: 43_668_00, open: 1 }, supplier: true }))
-    for (const t of ['Open bills', '€156,500.00', 'In your favour', '€43,668.00', 'not yet set off', 'Net you owe', '€112,832.00']) expect(both).toContain(t)
-    const plain = render(h(PartyBalance, { t: { party: 'Wave Phone B.V.', remainingCents: 5_00, openCents: 5_00, favourCents: 0, open: 1 }, supplier: false }))
-    expect(plain.replace(/<[^>]+>/g, '')).toContain('Owes you €5.00 · 1 open')
-    expect(plain).not.toContain('favour')
+    const text = (el: Parameters<typeof render>[0]) => render(el).replace(/<[^>]+>/g, '')
+    const supplier = text(h(PartyBalance, { t: { party: 'Mobile One Trade B.V.', remainingCents: 112_832_00, openCents: 156_500_00, favourCents: 43_668_00, open: 1 }, supplier: true }))
+    for (const t of ['Open bills €156,500.00', 'In your favour €43,668.00', 'not yet set off', 'Net: You owe €112,832.00']) expect(supplier).toContain(t)
+    const customer = text(h(PartyBalance, { t: { party: 'Wave Phone B.V.', remainingCents: 235_195_84, openCents: 243_615_84, favourCents: 8_420_00, open: 5 }, supplier: false }))
+    for (const t of ['Open invoices €243,615.84', 'You owe them €8,420.00', 'refund', 'Net: Owes you €235,195.84']) expect(customer).toContain(t)
+    expect(customer).not.toContain('favour')
+    const owedBack = text(h(PartyBalance, { t: { party: 'TradeWise', remainingCents: -20_00, openCents: 0, favourCents: 20_00, open: 0 }, supplier: false }))
+    expect(owedBack).toContain('Net: You owe them €20.00')
+    expect(owedBack).not.toContain('−')
+    expect(text(h(PartyBalance, { t: { party: 'Wave Phone B.V.', remainingCents: 5_00, openCents: 5_00, favourCents: 0, open: 1 }, supplier: false }))).toContain('Owes you €5.00 · 1 open')
   })
 
   it('marks stale data in words, with the last error', async () => {

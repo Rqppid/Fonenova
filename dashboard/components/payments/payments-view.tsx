@@ -274,20 +274,26 @@ function ActionSheet({ action, onClose, invoices }: { action: Action | null; onC
 // ---------------------------------------------------------------------------
 
 /**
- * A party's balance. When some invoices are in your favour (credits or overpayments not yet set
- * off), the open amount, that amount and the net are shown apart, so the net never hides money
- * still to be recovered or set off.
+ * A party's balance. A negative remaining balance means opposite things by party type:
+ * - a customer invoice below zero means the customer overpaid, so you owe them;
+ * - a Mobile One bill below zero means Mobile One owes you (credits or overpayment).
+ * When there is any, the open amount, that amount and the net are shown apart, so the net never
+ * hides money still to be set off, refunded or recovered.
  */
 export function PartyBalance({ t, supplier }: { t: PartyTotal; supplier: boolean }) {
-  const net = supplier ? 'You owe' : 'Owes you'
-  if (!t.favourCents) {
-    return <p className="text-[13.5px] text-ink-2" data-testid="party-balance">{net} <strong className="tabular-nums text-ink">{eur(t.remainingCents)}</strong> · {t.open} open</p>
-  }
+  const strong = (cents: number) => <strong className="tabular-nums text-ink">{eur(cents)}</strong>
+  // The net in words, never a minus sign: who owes whom, and how much.
+  const net = t.remainingCents >= 0
+    ? <>{supplier ? 'You owe' : 'Owes you'} {strong(t.remainingCents)}</>
+    : <>{supplier ? 'Mobile One owes you' : 'You owe them'} {strong(-t.remainingCents)}</>
+  if (!t.favourCents) return <p className="text-[13.5px] text-ink-2" data-testid="party-balance">{net} · {t.open} open</p>
   return (
     <p className="flex flex-wrap justify-end gap-x-3 gap-y-0.5 text-right text-[13.5px] text-ink-2" data-testid="party-balance">
-      <span>{supplier ? 'Open bills' : 'Open invoices'} <strong className="tabular-nums text-ink">{eur(t.openCents)}</strong></span>
-      <span>{supplier ? 'In your favour' : 'In their favour'} <strong className="tabular-nums text-gain">{eur(t.favourCents)}</strong> <span className="text-[12.5px]">({supplier ? 'credits and overpayments not yet set off' : 'overpaid, not yet applied'})</span></span>
-      <span>Net {net.toLowerCase()} <strong className="tabular-nums text-ink">{eur(t.remainingCents)}</strong> · {t.open} open</span>
+      <span>{supplier ? 'Open bills' : 'Open invoices'} {strong(t.openCents)}</span>
+      {supplier
+        ? <span>In your favour <strong className="tabular-nums text-gain">{eur(t.favourCents)}</strong> <span className="text-[12.5px]">(credits and overpayments not yet set off)</span></span>
+        : <span>You owe them {strong(t.favourCents)} <span className="text-[12.5px]">(overpaid; apply it to an open invoice or refund it)</span></span>}
+      <span>Net: {net} · {t.open} open</span>
     </p>
   )
 }

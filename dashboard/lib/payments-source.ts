@@ -107,8 +107,9 @@ export async function trackerFile(key: Tracker): Promise<PaymentsResult<Response
 
 /**
  * What each party still owes or is owed: sums of the service's own `remaining_cents` per party.
- * `openCents` is what is still due on invoices with a balance; `favourCents` is the other way
- * (credits or overpayments on settled invoices, not yet set off); `remainingCents` is the net.
+ * `openCents` is what is still due on invoices with a balance; `favourCents` is the other way,
+ * from invoices below zero; `remainingCents` is the net. What "the other way" means depends on the
+ * party: for a customer it is an overpayment you owe back, for Mobile One it is money owed to you.
  * Customers and Mobile One are always kept apart, and no payments are ever added together.
  */
 export function partyTotals(invoices: readonly Invoice[]): { party: string; remainingCents: number; openCents: number; favourCents: number; open: number }[] {
