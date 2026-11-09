@@ -86,7 +86,7 @@ export function Freshness({ state }: { state: Pick<PaymentsState, 'health' | 'ge
       {stale ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden /> : <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-gain" aria-hidden />}
       <div className="min-w-0 flex-1">
         <p className={cn('font-medium', stale ? 'text-warn' : 'text-ink')}>{stale ? 'Possibly out of date: ' : ''}Bank matching updated {ago}</p>
-        {h.last_error && <p className="text-[13px] text-warn">Last problem: {h.last_error}</p>}
+        {h.last_error && <p className="text-[12.5px] text-ink-2">Details: <span className="break-all">{h.last_error}</span></p>}
         <p className="text-[12.5px] text-ink-2">Revolut EUR account, matched by the payments service. Data as of {new Date(state.generated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.</p>
       </div>
     </section>

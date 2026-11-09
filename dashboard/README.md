@@ -145,7 +145,8 @@ source syncing, Xero and OneDrive connected, Xero refreshed in the last 30 hours
 scenarios on and their last run clean, Make credits, a sales invoice and a supplier bill in the
 last 7 days (red at 14), no gaps in your invoice numbers, and (where `PAYMENTS_API_URL` is set)
 the payments service's `/api/health`: red when it answers 503 `{ok:false}`, has not run for 30
-minutes, or cannot be reached. Settings shows the list, the
+minutes, or cannot be reached within 7 s (4 s when the dashboard page itself checks, so a hung
+service cannot hold the page up). The service's `last_error` is shown as details, not the headline. Settings shows the list, the
 status pill turns red, and the Friday email has a System health section.
 
 It then pings `HEALTHCHECK_URL` (a free [Healthchecks.io](https://healthchecks.io) check, period

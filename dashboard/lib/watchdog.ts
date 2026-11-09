@@ -16,14 +16,18 @@ import type { SourceStatus } from './sync-core'
 
 const makeConfigured = () => !!(process.env.MAKE_API_TOKEN && process.env.MAKE_SCENARIOS)
 
-export async function loadHealth(sources: SourceStatus[]): Promise<HealthCheck[]> {
+/**
+ * `paymentsTimeoutMs`: the daily job and the Friday email wait the full 7 s for the payments
+ * service; the dashboard page passes a shorter limit so a hung service cannot hold the page up.
+ */
+export async function loadHealth(sources: SourceStatus[], opts: { paymentsTimeoutMs?: number } = {}): Promise<HealthCheck[]> {
   const [xero, oneDrive, make, settings, gmail, payments] = await Promise.all([
     loadXeroState(),
     loadOneDriveState(),
     loadMakeStatus(),
     loadSettings(),
     gmailConfig() ? gmailConnected().then((g) => ({ configured: true, connected: g.connected }), () => ({ configured: true, connected: false })) : Promise.resolve({ configured: false, connected: false }),
-    getPaymentsHealth(),
+    getPaymentsHealth(opts.paymentsTimeoutMs),
   ])
   return healthChecks({
     now: new Date(),

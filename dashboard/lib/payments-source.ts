@@ -66,9 +66,9 @@ export async function getState(): Promise<PaymentsResult<PaymentsState>> {
  * failing: that is a finding (red in the watchdog), not a connection error, so a 503 that carries
  * health data is read as data. A 503 without it is still an error.
  */
-export async function getHealth(): Promise<PaymentsResult<PaymentsHealth>> {
-  // Short timeout: the watchdog runs on every dashboard load, which must not wait on this.
-  const r = await json<Partial<PaymentsHealth>>(await call('/api/health', { okStatuses: [503], timeoutMs: 4_000 }))
+export async function getHealth(timeoutMs = 7_000): Promise<PaymentsResult<PaymentsHealth>> {
+  // It normally answers in under a second; 7 s allows for a cold start without a false alarm.
+  const r = await json<Partial<PaymentsHealth>>(await call('/api/health', { okStatuses: [503], timeoutMs }))
   if (r.kind !== 'ok') return r
   const h = r.data
   if (!h || typeof h.ok !== 'boolean') return { kind: 'error', message: 'The payments service sent health data in an unexpected shape.' }

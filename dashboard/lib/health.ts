@@ -50,14 +50,15 @@ const PAYMENTS_STALE_MINUTES = 30
 
 function paymentsCheck(r: PaymentsResult<PaymentsHealth> | undefined): HealthCheck | null {
   if (!r || r.kind === 'not-configured') return null
-  const fix = 'Check the fonenova-payments service and its last error. Until it runs again, new Revolut payments are not matched.'
+  const fix = 'Check the fonenova-payments service. Until it runs cleanly again, new Revolut payments are not matched.'
   if (r.kind !== 'ok') return { id: 'payments', level: 'red', title: 'Payments service unreachable', detail: r.kind === 'error' ? r.message : r.error, fix: 'Check the fonenova-payments service is running, and PAYMENTS_API_URL and PAYMENTS_API_TOKEN in Vercel.' }
   const h = r.data
   const mins = h.minutes_ago
   const when = mins === null ? 'It has not run.' : `Last run ${mins < 90 ? `${Math.round(mins)} min` : `${Math.round(mins / 60)} h`} ago.`
-  if (!h.ok || mins === null || mins > PAYMENTS_STALE_MINUTES) {
-    return { id: 'payments', level: 'red', title: 'Payments matching is stale', detail: `${when}${h.last_error ? ` Last error: ${h.last_error}` : ''}`, fix }
-  }
+  // last_error is a short technical string from the service: shown as details, never the headline.
+  const details = h.last_error ? ` Details: ${h.last_error}` : ''
+  if (mins === null || mins > PAYMENTS_STALE_MINUTES) return { id: 'payments', level: 'red', title: 'Payments matching has stopped', detail: `${when}${details}`, fix }
+  if (!h.ok) return { id: 'payments', level: 'red', title: 'Payments matching failed its last run', detail: `${when}${details}`, fix }
   return { id: 'payments', level: 'ok', title: 'Payments matching', detail: when }
 }
 
