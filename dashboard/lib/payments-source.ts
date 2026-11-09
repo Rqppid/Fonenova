@@ -106,15 +106,19 @@ export async function trackerFile(key: Tracker): Promise<PaymentsResult<Response
 }
 
 /**
- * What each party still owes or is owed: the sum of the service's own `remaining_cents` per party.
+ * What each party still owes or is owed: sums of the service's own `remaining_cents` per party.
+ * `openCents` is what is still due on invoices with a balance; `favourCents` is the other way
+ * (credits or overpayments on settled invoices, not yet set off); `remainingCents` is the net.
  * Customers and Mobile One are always kept apart, and no payments are ever added together.
  */
-export function partyTotals(invoices: readonly Invoice[]): { party: string; remainingCents: number; open: number }[] {
-  const by = new Map<string, { remainingCents: number; open: number }>()
+export function partyTotals(invoices: readonly Invoice[]): { party: string; remainingCents: number; openCents: number; favourCents: number; open: number }[] {
+  const by = new Map<string, { remainingCents: number; openCents: number; favourCents: number; open: number }>()
   for (const i of invoices) {
     if (i.state === 'cancelled') continue
-    const p = by.get(i.party) ?? { remainingCents: 0, open: 0 }
+    const p = by.get(i.party) ?? { remainingCents: 0, openCents: 0, favourCents: 0, open: 0 }
     p.remainingCents += i.remaining_cents
+    if (i.remaining_cents > 0) p.openCents += i.remaining_cents
+    else p.favourCents -= i.remaining_cents
     if (i.state === 'not_paid' || i.state === 'partly_paid') p.open++
     by.set(i.party, p)
   }
