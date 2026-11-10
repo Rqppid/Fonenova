@@ -30,7 +30,9 @@ export interface HealthInput {
   today: IsoDate
   sources: SourceStatus[]
   xero: { configured: boolean; connected: boolean; snapshot: XeroSnapshot | null }
-  oneDrive: { configured: boolean; connected: boolean }
+  oneDrive: { configured: boolean; connected: boolean; canWrite?: boolean }
+  /** ONEDRIVE_WRITE_TOKEN is set: the payments service expects to keep its trackers current. */
+  trackerWritesWanted?: boolean
   make: MakeStatus | null
   makeConfigured: boolean
   gmail: { configured: boolean; connected: boolean }
@@ -101,6 +103,7 @@ export function healthChecks(h: HealthInput): HealthCheck[] {
       : { id: `sync-${s.source}`, level: 'red', title: `${s.label} is not syncing`, detail: s.message, fix: 'Open Settings → Data sources. If it says "not connected", connect it again.' })
   }
   if (h.oneDrive.configured && !h.oneDrive.connected) add({ id: 'onedrive', level: 'red', title: 'OneDrive is disconnected', detail: 'The ledger and VAT trackers are no longer read.', fix: 'Settings → Connect OneDrive.' })
+  if (h.trackerWritesWanted && h.oneDrive.connected && !h.oneDrive.canWrite) add({ id: 'onedrive-write', level: 'amber', title: 'Payments trackers are not being updated on OneDrive', detail: 'OneDrive is connected read-only, so the payments service cannot save the trackers.', fix: 'Settings → OneDrive → Disconnect, then Connect OneDrive, and approve access to your files.' })
   if (h.xero.configured && !h.xero.connected) add({ id: 'xero', level: 'red', title: 'Xero is disconnected', detail: 'Invoices, bills and the checks have stopped.', fix: 'Settings → Connect Xero.' })
 
   const snap = h.xero.snapshot

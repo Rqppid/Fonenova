@@ -82,6 +82,8 @@ configuration in production locks everyone out; it never opens up.
 | `MS_CLIENT_ID` | Microsoft app for OneDrive (below). `MS_CLIENT_SECRET` is optional |
 | `FN_ONEDRIVE_LEDGER` | The ledger's place in OneDrive, e.g. `Desktop/FoneNova_Order_Ledger.xlsx`. A Windows path pasted as is (`C:\Users\...\OneDrive\Desktop\...`) works too |
 | `FN_ONEDRIVE_EXPENSES_DIR` | The VAT returns folder in OneDrive, e.g. `Desktop/VAT RETURNS` |
+| `ONEDRIVE_WRITE_TOKEN` | Bearer secret (32+ characters) for the payments service's tracker routes, below. Unset: the routes answer 503 |
+| `ONEDRIVE_WRITE_PATHS` | The exact tracker paths the payments service may read and write, one per line (or `;`-separated) |
 | `XERO_CLIENT_ID` | Optional. Add `https://dashboard.fonenova.com/xero/callback` to the Xero app's redirect URIs |
 
 **Live data on the web.** The hosted dashboard reads the same two spreadsheets from OneDrive,
@@ -104,8 +106,23 @@ OneDrive tokens are never copied. Run it again whenever the trackers change.
 `https://dashboard.fonenova.com/onedrive/callback`. That is a public client signing in with PKCE,
 so there is no secret to store or renew. Copy the *Application (client) ID* into `MS_CLIENT_ID`,
 redeploy, sign in and click **Connect OneDrive (read-only)**; Microsoft asks you to approve
-`Files.Read` there. Microsoft can't limit a personal account to one folder, so the dashboard asks
-for read access to files and opens only the two paths above. (A Web-platform app with a client
+`Files.ReadWrite` there (connections made before write access existed stay read-only, and keep
+working, until connected again). Microsoft can't limit a personal account to one folder, so this
+is write access to the whole OneDrive: the dashboard reads only the ledger and VAT paths above and
+writes only the exact paths in `ONEDRIVE_WRITE_PATHS`, never the ledger or VAT folder, and has no
+code that deletes anything.
+
+**Payments trackers on OneDrive.** For the payments service (bearer `ONEDRIVE_WRITE_TOKEN`, outside
+the dashboard sign-in, `lib/onedrive-write.ts`):
+
+- `GET /api/onedrive/file?path=` → `{path, exists, sha256, etag, last_modified, size}`
+- `PUT /api/onedrive/file?path=&expected_sha256=<hex|none>`, raw xlsx bytes (≤ 4 MB) →
+  `200 {sha256, etag, last_modified}`, `409 {"error":"changed"}` (nothing written; the upload also
+  carries `If-Match`), `423 {"error":"locked"}` (skipped), `400`, `401`, `503` (not connected, or
+  connected read-only)
+- `GET /api/onedrive/conflicts?folder=` → OneDrive's `<file>-<PCNAME>.xlsx` conflict copies
+
+Each write is logged (path, hashes, result, time; never the contents). (A Web-platform app with a client
 secret in `MS_CLIENT_SECRET` works too, but that secret expires.)
 
 `FN_LEDGER_BR` (from `npm run pack-ledger`) still works as a fallback, without live sync: if set,

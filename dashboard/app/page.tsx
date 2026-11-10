@@ -53,7 +53,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
             <ul className="mt-3 space-y-1 text-[13px] text-loss">{sources.filter((x) => !x.ok && x.configured).map((x) => <li key={x.source}>{x.label}: {x.message}</li>)}</ul>
           )}
           {oneDrive.configured && !oneDrive.connected && (
-            <a href="/onedrive/connect" className="mt-4 inline-flex h-9 items-center rounded-md bg-navy px-3 text-sm font-medium text-white hover:bg-navy-2">Connect OneDrive (read-only)</a>
+            <a href="/onedrive/connect" className="mt-4 inline-flex h-9 items-center rounded-md bg-navy px-3 text-sm font-medium text-white hover:bg-navy-2">Connect OneDrive</a>
           )}
           <p className="mt-4 text-[13px] text-ink-3">Data source: {source.name}. No figures are shown until the data loads, so nothing on screen is a guess.</p>
         </div>

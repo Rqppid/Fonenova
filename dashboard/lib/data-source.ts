@@ -238,6 +238,8 @@ export interface OneDriveState {
   configured: boolean
   connected: boolean
   accountName: string | null
+  /** The connection was granted write access (needed to keep the payments trackers current). */
+  canWrite?: boolean
 }
 
 export async function loadOneDriveState(): Promise<OneDriveState> {

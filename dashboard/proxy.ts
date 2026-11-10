@@ -24,7 +24,8 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   // Everything except the sign-in flow itself, robots.txt, Next's static build assets
-  // (hashed JS/CSS with no data in them) and the scheduled sync, which checks its own
-  // CRON_SECRET bearer token instead and returns no figures.
-  matcher: ['/((?!login|auth/|api/cron/|robots\\.txt|_next/static|_next/image|favicon\\.ico|icon\\.svg).*)'],
+  // (hashed JS/CSS with no data in them), the scheduled sync, which checks its own
+  // CRON_SECRET bearer token instead and returns no figures, and the OneDrive tracker routes for
+  // the payments service, which check their own ONEDRIVE_WRITE_TOKEN bearer token.
+  matcher: ['/((?!login|auth/|api/cron/|api/onedrive/|robots\\.txt|_next/static|_next/image|favicon\\.ico|icon\\.svg).*)'],
 }
