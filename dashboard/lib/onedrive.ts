@@ -1,12 +1,15 @@
 /**
- * Read-only OneDrive connection for the hosted dashboard, so it reads the same ledger and
- * VAT tracker you save on your PC.
+ * OneDrive connection for the hosted dashboard: it reads the same ledger and VAT tracker you
+ * save on your PC, and (lib/onedrive-write.ts) keeps the payments trackers current for the
+ * payments service.
  *
  * Microsoft sign-in for personal accounts (the "consumers" endpoint), auth code with PKCE,
- * scope Files.Read only. Registered as a public client (no secret to store or renew);
- * MS_CLIENT_SECRET is used too if you set one. Tokens live in the store (encrypted online
- * when hosted). Refresh tokens rotate, so every refresh saves the new pair at once, under
- * a lock. Only the two configured paths are ever opened.
+ * delegated. A new connection asks for Files.ReadWrite; a token keeps the scope Microsoft
+ * granted it, so a connection made when the dashboard was read-only stays read-only (and keeps
+ * working) until it is connected again. Registered as a public client (no secret to store or
+ * renew); MS_CLIENT_SECRET is used too if you set one. Tokens live in the store (encrypted
+ * online). Refresh tokens rotate, so every refresh saves the new pair at once, under a lock.
+ * The token never leaves the dashboard.
  */
 import crypto from 'node:crypto'
 import { getJson, getStore, type Store } from './store'
@@ -14,7 +17,8 @@ import { combinedSource, isArchiveName, isTrackerName, skipFolder, type FileSour
 
 const LOGIN = () => (process.env.FN_MS_LOGIN_URL ?? 'https://login.microsoftonline.com/consumers/oauth2/v2.0').replace(/\/$/, '')
 const GRAPH = () => (process.env.FN_GRAPH_URL ?? 'https://graph.microsoft.com/v1.0').replace(/\/$/, '')
-const SCOPES = 'Files.Read offline_access'
+export const SCOPES_READ = 'Files.Read offline_access'
+export const SCOPES_WRITE = 'Files.ReadWrite offline_access'
 
 export interface OneDriveConfig {
   clientId: string
@@ -56,11 +60,16 @@ interface Tokens {
   refreshToken: string
   expiresAt: number
   accountName: string | null
+  /** The scope Microsoft granted. Missing on tokens saved before write access existed: read-only. */
+  scope?: string
 }
 
-export async function oneDriveConnected(store: Store = getStore()): Promise<{ connected: boolean; accountName: string | null }> {
+/** Whether a granted scope allows writing files. */
+export const scopeCanWrite = (scope: string | undefined) => /(^|\s)Files\.ReadWrite(\.All)?(\s|$)/i.test(scope ?? '')
+
+export async function oneDriveConnected(store: Store = getStore()): Promise<{ connected: boolean; accountName: string | null; canWrite: boolean }> {
   const t = await getJson<Tokens>(store, 'onedrive:tokens')
-  return { connected: !!t, accountName: t?.accountName ?? null }
+  return { connected: !!t, accountName: t?.accountName ?? null, canWrite: scopeCanWrite(t?.scope) }
 }
 
 export async function disconnectOneDrive(): Promise<void> {
@@ -81,7 +90,7 @@ export function startOneDriveAuth(c: OneDriveConfig): { url: string; state: stri
     response_type: 'code',
     redirect_uri: c.redirectUri,
     response_mode: 'query',
-    scope: SCOPES,
+    scope: SCOPES_WRITE,
     state,
     code_challenge: b64url(crypto.createHash('sha256').update(verifier).digest()),
     code_challenge_method: 'S256',
@@ -90,11 +99,11 @@ export function startOneDriveAuth(c: OneDriveConfig): { url: string; state: stri
   return { url: `${LOGIN()}/authorize?${q}`, state, verifier }
 }
 
-async function tokenRequest(c: OneDriveConfig, body: Record<string, string>): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+async function tokenRequest(c: OneDriveConfig, scope: string, body: Record<string, string>): Promise<{ access_token: string; refresh_token: string; expires_in: number; scope?: string }> {
   const res = await fetch(`${LOGIN()}/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: c.clientId, ...(c.clientSecret ? { client_secret: c.clientSecret } : {}), scope: SCOPES, ...body }),
+    body: new URLSearchParams({ client_id: c.clientId, ...(c.clientSecret ? { client_secret: c.clientSecret } : {}), scope, ...body }),
     cache: 'no-store',
   })
   if (!res.ok) throw new Error(`Microsoft refused the sign-in (${res.status}): ${(await res.text()).slice(0, 200)}`)
@@ -102,22 +111,26 @@ async function tokenRequest(c: OneDriveConfig, body: Record<string, string>): Pr
 }
 
 export async function finishOneDriveAuth(c: OneDriveConfig, code: string, verifier: string): Promise<string | null> {
-  const t = await tokenRequest(c, { grant_type: 'authorization_code', code, redirect_uri: c.redirectUri, code_verifier: verifier })
+  const t = await tokenRequest(c, SCOPES_WRITE, { grant_type: 'authorization_code', code, redirect_uri: c.redirectUri, code_verifier: verifier })
   // The drive's owner name, so the bar can say whose OneDrive is connected. Files.Read allows this.
   const drive = await fetch(`${GRAPH()}/me/drive?$select=owner`, { headers: { authorization: `Bearer ${t.access_token}` }, cache: 'no-store' })
   if (!drive.ok) throw new Error(`Could not open the OneDrive (${drive.status})`)
   const accountName = ((await drive.json()) as { owner?: { user?: { displayName?: string } } }).owner?.user?.displayName ?? null
-  await getStore().set('onedrive:tokens', { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000, accountName } satisfies Tokens)
+  // Keep what Microsoft actually granted (it can grant less than asked), so refreshes ask for the same.
+  const scope = t.scope?.trim() ? (scopeCanWrite(t.scope) ? SCOPES_WRITE : SCOPES_READ) : SCOPES_WRITE
+  await getStore().set('onedrive:tokens', { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000, accountName, scope } satisfies Tokens)
   return accountName
 }
 
-async function accessToken(c: OneDriveConfig, store: Store): Promise<string> {
+export async function accessToken(c: OneDriveConfig, store: Store = getStore()): Promise<string> {
   return store.withLock('onedrive:tokens', async () => {
     const t = await getJson<Tokens>(store, 'onedrive:tokens')
     if (!t) throw new Error('OneDrive is not connected')
     if (t.expiresAt - 60_000 > Date.now()) return t.accessToken
-    const r = await tokenRequest(c, { grant_type: 'refresh_token', refresh_token: t.refreshToken })
-    await store.set('onedrive:tokens', { ...t, accessToken: r.access_token, refreshToken: r.refresh_token ?? t.refreshToken, expiresAt: Date.now() + r.expires_in * 1000 })
+    // Ask for the scope this token was granted: asking a read-only token for write would fail.
+    const scope = scopeCanWrite(t.scope) ? SCOPES_WRITE : SCOPES_READ
+    const r = await tokenRequest(c, scope, { grant_type: 'refresh_token', refresh_token: t.refreshToken })
+    await store.set('onedrive:tokens', { ...t, scope, accessToken: r.access_token, refreshToken: r.refresh_token ?? t.refreshToken, expiresAt: Date.now() + r.expires_in * 1000 })
     return r.access_token
   })
 }
@@ -140,7 +153,8 @@ function graph(token: () => Promise<string>): Graph {
   return async (pathAndQuery) => fetch(`${GRAPH()}${pathAndQuery}`, { headers: { authorization: `Bearer ${await token()}` }, cache: 'no-store', signal: AbortSignal.timeout(20_000) })
 }
 
-const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/')
+export const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/')
+export const graphBase = GRAPH
 
 async function itemByPath(g: Graph, p: string): Promise<DriveItem | null> {
   const res = await g(`/me/drive/root:/${encodePath(p)}`)

@@ -91,3 +91,12 @@ describe('payments service in the watchdog', () => {
     expect(healthSummary(healthChecks(base({ payments: { kind: 'ok', data: { ok: false, last_run: null, minutes_ago: 168, last_error: 'Revolut token expired' } } })))).toContain('Revolut token expired')
   })
 })
+
+describe('OneDrive write access in the watchdog', () => {
+  const od = (over: Partial<HealthInput>) => healthChecks(base(over)).find((c) => c.id === 'onedrive-write')
+  it('is amber only when the payments service expects tracker writes and the connection is read-only', () => {
+    expect(od({ trackerWritesWanted: true, oneDrive: { configured: true, connected: true, canWrite: false } })?.level).toBe('amber')
+    expect(od({ trackerWritesWanted: true, oneDrive: { configured: true, connected: true, canWrite: true } })).toBeUndefined()
+    expect(od({ trackerWritesWanted: false, oneDrive: { configured: true, connected: true, canWrite: false } })).toBeUndefined()
+  })
+})

@@ -75,12 +75,13 @@ export function XeroBar({ xero, summary, ledgerImported, ledgerSnapshot, notice,
             <>
               <span className="text-ink-2">Not connected, so the ledger and tracker are not read from OneDrive.</span>
               <a href="/onedrive/connect" className="inline-flex h-8 items-center gap-1.5 rounded-md bg-navy px-2.5 font-medium text-white hover:bg-navy-2">
-                <Link2 className="h-4 w-4" aria-hidden />Connect OneDrive (read-only)
+                <Link2 className="h-4 w-4" aria-hidden />Connect OneDrive
               </a>
             </>
           ) : (
             <>
               <span className="font-medium text-gain">Connected{oneDrive.accountName ? ` (${oneDrive.accountName})` : ''}</span>
+              <span className="text-ink-3" data-testid="onedrive-access">{oneDrive.canWrite ? 'read and write (payments trackers)' : 'read-only'}</span>
               {hosted && <span className="text-ink-3">checked on each visit and daily at 06:00 UTC</span>}
               <Button size="sm" variant="ghost" onClick={() => post('/onedrive/disconnect', 'onedrive-disconnect')} disabled={busy !== null}>
                 <Unlink className="h-3.5 w-3.5" aria-hidden />Disconnect
