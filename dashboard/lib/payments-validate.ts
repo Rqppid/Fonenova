@@ -5,7 +5,9 @@
 import type { Tracker } from './payments-types'
 
 const INVOICE = /^[0-9/]{1,20}$/
-const TRACKER_KEYS: readonly Tracker[] = ['wave', 'tw', 'm1']
+/** A tracker key as the service names them ("wave", "giglobal", …). Whether it exists is the service's call. */
+const TRACKER_KEY = /^[a-z0-9_-]{1,20}$/
+const isTracker = (v: unknown): v is Tracker => typeof v === 'string' && TRACKER_KEY.test(v)
 
 const positiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
 
@@ -18,8 +20,8 @@ export function checkApprove(body: unknown): Checked<{ exception_id: number; inv
   if (typeof b.invoice !== 'string' || !INVOICE.test(b.invoice)) return { ok: false, error: 'invoice must be digits and slashes only, up to 20 characters' }
   if (b.amount_cents !== undefined && b.amount_cents !== null && !positiveInt(b.amount_cents)) return { ok: false, error: 'amount_cents must be a positive whole number of cents' }
   // Which tracker the invoice is in: needed only when the same number exists in two trackers.
-  if (b.tracker !== undefined && b.tracker !== null && !(TRACKER_KEYS as readonly unknown[]).includes(b.tracker)) return { ok: false, error: 'tracker must be wave, tw or m1' }
-  const tracker = (TRACKER_KEYS as readonly unknown[]).includes(b.tracker) ? (b.tracker as Tracker) : undefined
+  if (b.tracker !== undefined && b.tracker !== null && !isTracker(b.tracker)) return { ok: false, error: 'tracker must be a tracker key (lowercase letters, digits, - or _)' }
+  const tracker = isTracker(b.tracker) ? b.tracker : undefined
   return { ok: true, value: { exception_id: b.exception_id, invoice: b.invoice, ...(positiveInt(b.amount_cents) ? { amount_cents: b.amount_cents } : {}), ...(tracker ? { tracker } : {}) } }
 }
 
@@ -33,5 +35,5 @@ export function checkDismiss(body: unknown): Checked<{ exception_id: number; dis
 }
 
 export function checkTracker(key: string | null): Checked<Tracker> {
-  return key && (TRACKER_KEYS as readonly string[]).includes(key) ? { ok: true, value: key as Tracker } : { ok: false, error: 'key must be wave, tw or m1' }
+  return isTracker(key) ? { ok: true, value: key } : { ok: false, error: 'key must be a tracker key (lowercase letters, digits, - or _)' }
 }

@@ -38,6 +38,10 @@ export function paymentsFixture(): PaymentsState {
         number: '2026/02/0001', party: 'TradeWise', tracker: 'tw', date: '2026-02-05',
         total_cents: 8_084_00, paid_cents: 0, credits_cents: 0, remaining_cents: 8_084_00, state: 'cancelled', payments: [],
       },
+      {
+        number: '2026019', party: 'G and I Global Ltd', tracker: 'giglobal', date: '2026-11-11',
+        total_cents: 55_290_00, paid_cents: 0, credits_cents: 0, remaining_cents: 55_290_00, state: 'not_paid', payments: [],
+      },
     ],
     supplier_invoices: [
       {

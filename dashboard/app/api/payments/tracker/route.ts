@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server'
 import { trackerFile } from '@/lib/payments-source'
 import { guard, paymentsJson } from '@/lib/payments-guard'
 import { checkTracker } from '@/lib/payments-validate'
+import { KNOWN_TRACKERS } from '@/lib/payments-types'
 
 export const dynamic = 'force-dynamic'
-
-const NAMES = { wave: 'Wave Phone', tw: 'TradeWise', m1: 'Mobile One' } as const
 
 /** Pass the service's Excel tracker through, behind the dashboard sign-in. */
 export async function GET(req: Request) {
@@ -21,7 +20,7 @@ export async function GET(req: Request) {
   return new NextResponse(r.data.body, {
     headers: {
       'Content-Type': r.data.headers.get('content-type') ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${NAMES[key.value]} payments ${date}.xlsx"`,
+      'Content-Disposition': `attachment; filename="${KNOWN_TRACKERS[key.value] ?? key.value} payments ${date}.xlsx"`,
       'Cache-Control': 'no-store',
     },
   })
