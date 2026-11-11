@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, Link2, RefreshCw, Unlink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -38,6 +38,15 @@ export function XeroBar({ xero, summary, ledgerImported, ledgerSnapshot, notice,
   notice: string | null
 }) {
   const router = useRouter()
+  // A sign-in notice ("OneDrive sign-in failed", "Xero connected", …) comes in the address once.
+  // Take it out of the address after showing it, so a reload or a bookmark never shows an old one.
+  useEffect(() => {
+    if (!notice && !oneDriveNotice) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('onedrive')
+    url.searchParams.delete('xero')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [notice, oneDriveNotice])
   const [busy, setBusy] = useState<'refresh' | 'disconnect' | 'onedrive-disconnect' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const snap = xero.snapshot

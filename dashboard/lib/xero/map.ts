@@ -104,8 +104,9 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
 /**
  * Pair each ledger order with its Xero sales invoice and bill. A sales invoice matches on the
- * invoice number; a bill on the supplier's invoice number (as Xero number or reference). Either
- * also matches if its Reference is the Order ID. Voided and deleted documents never match.
+ * invoice number (or that number with "-R", for one re-created in Xero); a bill on the supplier's
+ * invoice number (as Xero number or reference). Either also matches if its Reference is the
+ * Order ID. Voided and deleted documents never match.
  */
 export function matchOrders(orders: readonly Order[], invoices: readonly XeroInvoice[]): Map<string, LiveOrderStatus> {
   const live = invoices.filter((i) => i.status !== 'VOIDED' && i.status !== 'DELETED')
@@ -116,7 +117,9 @@ export function matchOrders(orders: readonly Order[], invoices: readonly XeroInv
     const id = norm(o.id)
     const c = norm(o.clientInvoiceNo)
     const s = norm(o.supplierInvoiceNo)
-    const client = sales.find((i) => (c && norm(i.number) === c) || norm(i.reference) === id) ?? null
+    // Xero won't reuse a voided number, so an invoice re-created there gets "-R" (2026/02/0001-R
+    // is the ledger's 2026/02/0001). An exact number still wins.
+    const client = sales.find((i) => (c && norm(i.number) === c) || norm(i.reference) === id) ?? (c ? sales.find((i) => /-r$/i.test(i.number.trim()) && norm(i.number.trim().slice(0, -2)) === c) : undefined) ?? null
     const bill = bills.find((i) => (s && (norm(i.number) === s || norm(i.reference) === s)) || norm(i.reference) === id) ?? null
     out.set(o.id, { client, bill })
   }

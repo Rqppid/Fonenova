@@ -8,7 +8,7 @@ import { Sheet } from '@/components/ui/sheet'
 import { parseEuro } from '@/lib/deal'
 import { eur } from '@/lib/format'
 import { formatDate } from '@/lib/periods'
-import { TRACKERS, type ExceptionItem, type Invoice, type PaymentsResult, type PaymentsState, type Suggestion } from '@/lib/payments-types'
+import { trackerList, type ExceptionItem, type Invoice, type PaymentsResult, type PaymentsState, type Suggestion } from '@/lib/payments-types'
 import { cn } from '@/lib/utils'
 
 export type PartyTotal = { party: string; remainingCents: number; openCents: number; favourCents: number; open: number }
@@ -46,7 +46,7 @@ export function PaymentsView({ result, totals }: { result: PaymentsResult<Paymen
       <InvoiceGroups title="Customers" subtitle="What each customer still owes. Click an invoice to see each payment." invoices={s.customer_invoices} totals={totals.customers} owingWord="owes you" />
       <InvoiceGroups title="Mobile One" subtitle="What you still owe Mobile One, per bill. Click a bill to see each payment and credit." invoices={s.supplier_invoices} totals={totals.supplier} owingWord="you owe" />
       <HeldSurplus items={s.held_surplus} />
-      <Trackers />
+      <Trackers list={trackerList(s)} />
     </div>
   )
 }
@@ -117,10 +117,14 @@ export interface ExceptionActions {
   side: 'supplier' | 'customer'
   /** X-OVERPAY: the payment is already applied; allocating places only its surplus. */
   surplusOnly: boolean
+  /** X-XERO-*: shown as "needs a decision". */
+  decision?: boolean
 }
 
 export function exceptionActions(e: Pick<ExceptionItem, 'code' | 'bank_event'>): ExceptionActions {
   const side = OUTGOING.has(e.code) || e.code.startsWith('X-OUT') ? 'supplier' : 'customer'
+  // X-XERO-*: the service found Xero disagreeing with its records. Nothing to allocate; the owner decides.
+  if (e.code.startsWith('X-XERO-')) return { allocate: false, why: 'Needs a decision: Xero differs from the payments records.', side, surplusOnly: false, decision: true }
   const why = DISMISS_ONLY[e.code] ?? (e.bank_event ? null : 'There is no bank payment attached.')
   return { allocate: why === null, why: why && `Nothing to allocate: ${why[0].toLowerCase()}${why.slice(1)}`, side, surplusOnly: e.code === 'X-OVERPAY' }
 }
@@ -140,6 +144,7 @@ export function Exceptions({ items, customerInvoices, supplierInvoices }: { item
           <li key={e.id} data-severity={e.severity} className={cn('px-5 py-4', e.severity === 'HIGH' && 'border-l-4 border-l-loss bg-loss-soft/40')}>
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={e.severity === 'HIGH' ? 'loss' : e.severity === 'MEDIUM' ? 'warn' : 'neutral'}>{e.severity === 'HIGH' ? 'High' : e.severity === 'MEDIUM' ? 'Medium' : 'Low'}</Badge>
+              {e.code.startsWith('X-XERO-') && <Badge tone="warn">Needs a decision</Badge>}
               <span className="text-[12px] text-ink-3">{e.code}</span>
             </div>
             <p className="mt-1 text-[14px] text-ink">{e.detail}</p>
@@ -154,7 +159,7 @@ export function Exceptions({ items, customerInvoices, supplierInvoices }: { item
             {(() => {
               const can = exceptionActions(e)
               return (<>
-                {can.why && <p className="mt-2 text-[13px] text-ink-2" data-testid="dismiss-only">{can.why} You can dismiss it once you have checked it.</p>}
+                {can.why && <p className="mt-2 text-[13px] text-ink-2" data-testid="dismiss-only">{can.why} {can.decision ? 'Fix it in Xero or in the trackers, then dismiss it with what you decided.' : 'You can dismiss it once you have checked it.'}</p>}
                 {can.surplusOnly && <p className="mt-2 text-[13px] text-ink-2">This payment is already applied to its invoice. Allocating places only the surplus.</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {can.allocate && e.suggestions.map((s: Suggestion, i) => (
@@ -434,14 +439,15 @@ export function HeldSurplus({ items }: { items: PaymentsState['held_surplus'] })
   )
 }
 
-function Trackers() {
+export function Trackers({ list }: { list: { key: string; label: string }[] }) {
   return (
     <section aria-labelledby="trackers" className="rounded-lg border border-line bg-surface px-5 py-4">
       <h2 id="trackers" className="text-[15px] font-semibold text-ink">Trackers</h2>
       <p className="mt-0.5 text-[13px] text-ink-2">The payment trackers as Excel files, straight from the payments service.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {TRACKERS.map((t) => (
-          <a key={t.key} href={`/api/payments/tracker?key=${t.key}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-surface px-3 text-[13.5px] font-medium text-ink hover:bg-subtle">
+        {list.length === 0 && <p className="text-[13.5px] text-ink-2">The payments service lists no trackers.</p>}
+        {list.map((t) => (
+          <a key={t.key} href={`/api/payments/tracker?key=${encodeURIComponent(t.key)}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-surface px-3 text-[13.5px] font-medium text-ink hover:bg-subtle">
             <Download className="h-4 w-4" aria-hidden />Download Excel: {t.label}<ArrowRight className="sr-only" />
           </a>
         ))}

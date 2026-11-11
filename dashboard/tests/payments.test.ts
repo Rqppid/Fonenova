@@ -90,12 +90,25 @@ describe('approve and dismiss routes', () => {
     expect(refused.headers.get('cache-control')).toBe('no-store')
   })
 
-  it('forward the tracker only when it is one of the three, and refuse anything else', async () => {
+  it('forward any tracker key the service uses (giglobal included), and refuse anything that is not a key', async () => {
     const { POST } = await import('@/app/api/payments/approve/route')
-    expect((await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026046', tracker: 'wave' }))).status).toBe(200)
-    expect(JSON.parse(String(calls[0].init.body))).toEqual({ exception_id: 41, invoice: '2026046', tracker: 'wave' })
-    expect((await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026046', tracker: 'x' }))).status).toBe(400)
+    expect((await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026019', tracker: 'giglobal' }))).status).toBe(200)
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ exception_id: 41, invoice: '2026019', tracker: 'giglobal' })
+    for (const tracker of ['../x', 'Wave', 'a b', 'x'.repeat(21), 5]) expect((await POST(post('/api/payments/approve', { exception_id: 41, invoice: '2026046', tracker }))).status, String(tracker)).toBe(400)
     expect(calls).toHaveLength(1)
+    const { checkTracker } = await import('@/lib/payments-validate')
+    expect([checkTracker('giglobal').ok, checkTracker('../x').ok, checkTracker(null).ok]).toEqual([true, false, false])
+  })
+
+  it('lists the trackers from the feed, or from the invoices when the feed sends no list', async () => {
+    const { trackerList } = await import('@/lib/payments-types')
+    const { Trackers } = await import('@/components/payments/payments-view')
+    const s = paymentsFixture()
+    s.customer_invoices.push({ ...s.customer_invoices[1], number: '2026019', party: 'G and I Global Ltd', tracker: 'giglobal', payments: [] })
+    expect(trackerList(s)).toEqual([{ key: 'wave', label: 'Wave Phone' }, { key: 'tw', label: 'TradeWise' }, { key: 'giglobal', label: 'G and I Global Ltd' }, { key: 'm1', label: 'Mobile One' }])
+    s.trackers = [{ key: 'giglobal', label: 'G and I Global' }, { key: 'wave' }]
+    expect(trackerList(s)).toEqual([{ key: 'giglobal', label: 'G and I Global' }, { key: 'wave', label: 'Wave Phone' }])
+    expect(render(h(Trackers, { list: trackerList(s) }))).toContain('href="/api/payments/tracker?key=giglobal"')
   })
 
   it('pass on how much of a part-allocated payment is still unallocated', async () => {
@@ -150,6 +163,7 @@ describe('payments data layer', () => {
     const s = paymentsFixture()
     expect(partyTotals(s.customer_invoices)).toEqual([
       { party: 'Wave Phone B.V.', remainingCents: 43_954_94 + 258_810_00, openCents: 43_954_94 + 258_810_00, favourCents: 0, open: 2 },
+      { party: 'G and I Global Ltd', remainingCents: 55_290_00, openCents: 55_290_00, favourCents: 0, open: 1 },
       { party: 'TradeWise', remainingCents: -20_00, openCents: 0, favourCents: 20_00, open: 0 }, // the cancelled invoice is left out
     ])
     expect(partyTotals(s.supplier_invoices)).toEqual([{ party: 'Mobile One Trade B.V.', remainingCents: 156_500_00 - 43_668_00, openCents: 156_500_00, favourCents: 43_668_00, open: 1 }])
@@ -178,6 +192,10 @@ describe('Payments page rendering', () => {
     expect(pick('X-NO-REF')).toEqual({ allocate: true, why: null, side: 'customer', surplusOnly: false })
     expect(pick('X-OVERPAY')).toMatchObject({ allocate: true, surplusOnly: true })
     for (const code of ['X-OUT-UNKNOWN-ACCT', 'X-OUT-BAD-REF', 'X-OUT-OVER', 'X-OUT-NEW']) expect(pick(code).side, code).toBe('supplier')
+    for (const code of ['X-XERO-VOID', 'X-XERO-EDIT', 'X-XERO-CANCEL', 'X-XERO-CONTACT', 'X-XERO-CURRENCY']) {
+      expect(pick(code, null), code).toMatchObject({ allocate: false, decision: true, why: expect.stringContaining('Needs a decision') })
+      expect(pick(code, ev).allocate, `${code} even with a bank event`).toBe(false)
+    }
   })
 
   it('shows no Allocate button on reversal or token items', async () => {

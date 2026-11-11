@@ -59,6 +59,15 @@ describe('matching Xero to ledger orders', () => {
     const voided = mapInvoice({ ...xSale, Status: 'VOIDED' })!
     expect(matchOrders([order({})], [voided]).get('FN-ORD-001')!.client).toBeNull()
   })
+  it('matches an invoice re-created in Xero with "-R" (2026/02/0001-R is 2026/02/0001), and prefers an exact number', () => {
+    const o = order({ id: 'FN-ORD-009', clientInvoiceNo: '2026/02/0001', supplierInvoiceNo: '' })
+    const recreated = mapInvoice({ ...xSale, InvoiceID: 'r', InvoiceNumber: '2026/02/0001-R', Reference: '' })!
+    expect(matchOrders([o], [recreated]).get('FN-ORD-009')!.client?.id).toBe('r')
+    const exact = mapInvoice({ ...xSale, InvoiceID: 'e', InvoiceNumber: '2026/02/0001', Reference: '' })!
+    expect(matchOrders([o], [recreated, exact]).get('FN-ORD-009')!.client?.id).toBe('e')
+    const other = mapInvoice({ ...xSale, InvoiceID: 'x', InvoiceNumber: '2026/02/0002-R', Reference: '' })!
+    expect(matchOrders([o], [other]).get('FN-ORD-009')!.client).toBeNull()
+  })
   it('overlays live balances and due dates, and reports what did not match', () => {
     const o2 = order({ id: 'FN-ORD-002', clientInvoiceNo: '999', supplierInvoiceNo: '888' })
     const { orders, summary } = applyLiveStatus([order({}), o2], matchOrders([order({}), o2], [sale, bill]))
