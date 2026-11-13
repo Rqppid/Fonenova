@@ -155,7 +155,7 @@ export function WeeklyEmailCard({ state, notice }: { state: WeeklyEmailState; no
     <section aria-labelledby="weekly-title" className="rounded-lg border border-line bg-surface">
       <div className="border-b border-line px-5 py-3">
         <h2 id="weekly-title" className="flex items-center gap-1.5 text-[15px] font-semibold text-ink"><Mail className="h-4 w-4 text-ink-3" aria-hidden />Friday cash email</h2>
-        <p className="mt-0.5 text-[13px] leading-snug text-ink-2">Every Friday about 16:00 UK: who is late paying, what you must pay in the next 14 days against what should come in, Xero problems to fix, and drafts to approve. Sent from your own Gmail; the connection can send mail only, never read it.</p>
+        <p className="mt-0.5 text-[13px] leading-snug text-ink-2">Every Friday about 16:00 UK: who is late paying, what you must pay in the next 14 days against what should come in, Xero problems to fix, and drafts to approve. Sent from your own Gmail. The same connection reads Mobile One’s offers (read-only: it never changes or deletes mail).</p>
       </div>
       <div className="space-y-2 px-5 py-3 text-[13.5px]">
         {notice && GMAIL_NOTICE[notice] && <p role="status" className={cn('rounded-md px-3 py-2 text-[13px]', notice === 'connected' ? 'bg-gain-soft text-gain' : 'bg-warn-soft text-warn')}>{GMAIL_NOTICE[notice]}</p>}

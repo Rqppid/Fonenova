@@ -155,6 +155,22 @@ recalculates balances; `remaining_cents` from the service is shown as is, in int
   `PAYMENTS_API_URL=http://localhost:3299 PAYMENTS_API_TOKEN=dev-mock-token npm run dev`
   (`MOCK_STALE=1` or `MOCK_DOWN=1` on the mock to see those states).
 
+## Offers from Mobile One (phase 1: read and review)
+
+Every 5 minutes Upstash QStash calls `POST /api/cron/offers` with `Authorization: Bearer <CRON_SECRET>`
+(set as `Upstash-Forward-Authorization`). It searches the connected Gmail for
+`from:bv@mobileone.info newer_than:3d`, skips our own replies and anything already read, drops
+quoted replies and signatures (`lib/offers/clean.ts`), and asks Claude Haiku (strict tool,
+`lib/offers/parse.ts`) whether it is an offer and what its lines are. Offers are saved as
+NEEDS REVIEW and pinged to Telegram (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`). `/offers` shows
+each one beside the email, with checks per line (`lib/offers/check.ts`: unknown model such as
+"iPhone 7 Pro", missing storage, quantity, price outside €20 to €2,500, duplicates, lines that do
+not match the email). Nothing is sent to anyone in this phase.
+
+Gmail needs read access: new connections ask for `gmail.send` and `gmail.readonly` (read only,
+never change or delete). Connect Gmail again in Settings once; the consent screen must be
+Internal (Workspace) or the token expires after 7 days.
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data

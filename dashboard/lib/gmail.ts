@@ -1,10 +1,12 @@
 /**
- * Send-only Gmail connection, used for the Friday cash email.
+ * Gmail connection: sends the Friday cash email, and reads Mobile One's offers (lib/offers).
  *
  * Google sign-in with the dashboard's own OAuth client (GOOGLE_CLIENT_ID / SECRET), auth code
- * with PKCE, scope gmail.send only: it can send mail as the signed-in account and can never read
- * the mailbox. Only AUTH_ALLOWED_EMAIL may connect. Tokens live in the store (encrypted online).
- * With the Google consent screen set to Internal (Workspace), the refresh token does not expire.
+ * with PKCE. A new connection asks for gmail.send and gmail.readonly (read, never change or
+ * delete). A connection made before reading existed keeps gmail.send only, and keeps sending,
+ * until it is connected again. Only AUTH_ALLOWED_EMAIL may connect. Tokens live in the store
+ * (encrypted online). With the Google consent screen set to Internal (Workspace), the refresh
+ * token does not expire.
  */
 import crypto from 'node:crypto'
 import { getJson, getStore, type Store } from './store'
@@ -13,7 +15,11 @@ const AUTH = () => process.env.FN_GOOGLE_AUTH_URL ?? 'https://accounts.google.co
 const TOKEN = () => process.env.FN_GOOGLE_TOKEN_URL ?? 'https://oauth2.googleapis.com/token'
 const USERINFO = () => process.env.FN_GOOGLE_USERINFO_URL ?? 'https://openidconnect.googleapis.com/v1/userinfo'
 const GMAIL = () => (process.env.FN_GMAIL_API_URL ?? 'https://gmail.googleapis.com/gmail/v1').replace(/\/$/, '')
-const SCOPES = 'openid email https://www.googleapis.com/auth/gmail.send'
+const SCOPES = 'openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly'
+const READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+
+/** Whether a granted scope lets the dashboard read mail. */
+export const scopeCanRead = (scope: string | undefined) => (scope ?? '').split(/\s+/).some((x) => x === READ_SCOPE || x === 'https://mail.google.com/' || x === 'https://www.googleapis.com/auth/gmail.modify')
 
 export interface GmailConfig {
   clientId: string
@@ -43,11 +49,13 @@ interface Tokens {
   refreshToken: string
   expiresAt: number
   email: string
+  /** The scope Google granted. Missing on tokens saved before reading existed: send-only. */
+  scope?: string
 }
 
-export async function gmailConnected(store: Store = getStore()): Promise<{ connected: boolean; email: string | null }> {
+export async function gmailConnected(store: Store = getStore()): Promise<{ connected: boolean; email: string | null; canRead: boolean }> {
   const t = await getJson<Tokens>(store, 'gmail:tokens')
-  return { connected: !!t, email: t?.email ?? null }
+  return { connected: !!t, email: t?.email ?? null, canRead: scopeCanRead(t?.scope) }
 }
 
 export async function disconnectGmail(): Promise<void> {
@@ -74,7 +82,7 @@ export function startGmailAuth(c: GmailConfig): { url: string; state: string; ve
   return { url: `${AUTH()}?${q}`, state, verifier }
 }
 
-async function tokenRequest(c: GmailConfig, body: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in: number }> {
+async function tokenRequest(c: GmailConfig, body: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in: number; scope?: string }> {
   const res = await fetch(TOKEN(), {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -93,7 +101,7 @@ export async function finishGmailAuth(c: GmailConfig, code: string, verifier: st
   const email = who.ok ? String(((await who.json()) as { email?: string }).email ?? '').toLowerCase() : ''
   if (!email) throw new Error('Could not read which Google account signed in')
   if (c.allowedEmail && email !== c.allowedEmail) throw new Error(`Only ${c.allowedEmail} can send the weekly email (signed in as ${email})`)
-  await getStore().set('gmail:tokens', { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000, email } satisfies Tokens)
+  await getStore().set('gmail:tokens', { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000, email, scope: t.scope ?? '' } satisfies Tokens)
   return email
 }
 
@@ -141,4 +149,95 @@ export async function sendGmail(c: GmailConfig, msg: { subject: string; text: st
   })
   if (!res.ok) throw new Error(`Gmail did not send it (${res.status}): ${(await res.text()).slice(0, 200)}`)
   return { id: String(((await res.json()) as { id?: string }).id ?? ''), to, from: t.email }
+}
+
+// ---------------------------------------------------------------------------
+// Reading (gmail.readonly): Mobile One's offers. Never changes or deletes anything.
+// ---------------------------------------------------------------------------
+
+export interface MailMessage {
+  id: string
+  threadId: string
+  /** The RFC 822 Message-ID header, for replying in the same thread later. */
+  rfcMessageId: string | null
+  from: string
+  to: string
+  subject: string
+  /** ISO time Gmail received it. */
+  receivedAt: string
+  labels: string[]
+  /** Plain text of the body: the text part, or the HTML part turned into text. */
+  text: string
+  attachments: string[]
+}
+
+type Part = { mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string }; parts?: Part[]; headers?: { name: string; value: string }[] }
+
+const decode = (data: string | undefined) => (data ? Buffer.from(data, 'base64url').toString('utf8') : '')
+
+/** HTML to readable text: block elements become line breaks, tags and entities go. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(script|style|head)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<img[^>]*>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h\d|ol|ul|table|blockquote)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '* ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&euro;/gi, '€')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** A Gmail API message (format=full) as plain fields. Pure, for tests. */
+export function parseGmailMessage(j: { id?: string; threadId?: string; internalDate?: string; labelIds?: string[]; payload?: Part }): MailMessage {
+  const headers = new Map((j.payload?.headers ?? []).map((h) => [h.name.toLowerCase(), h.value]))
+  let plain = ''
+  let html = ''
+  const attachments: string[] = []
+  const walk = (p: Part | undefined) => {
+    if (!p) return
+    if (p.filename) attachments.push(p.filename)
+    else if (p.mimeType === 'text/plain' && !plain) plain = decode(p.body?.data)
+    else if (p.mimeType === 'text/html' && !html) html = decode(p.body?.data)
+    for (const c of p.parts ?? []) walk(c)
+  }
+  walk(j.payload)
+  return {
+    id: String(j.id ?? ''),
+    threadId: String(j.threadId ?? ''),
+    rfcMessageId: headers.get('message-id') ?? null,
+    from: headers.get('from') ?? '',
+    to: headers.get('to') ?? '',
+    subject: headers.get('subject') ?? '',
+    receivedAt: new Date(Number(j.internalDate ?? 0)).toISOString(),
+    labels: j.labelIds ?? [],
+    text: (plain.trim() ? plain : htmlToText(html)).replace(/\r\n/g, '\n').trim(),
+    attachments: attachments.filter(Boolean),
+  }
+}
+
+async function gmailGet(c: GmailConfig, path: string, store: Store): Promise<unknown> {
+  const t = await accessToken(c, store)
+  if (!scopeCanRead(t.scope)) throw new Error('Gmail is connected send-only: connect it again in Settings to let QuayPilot read offers')
+  const res = await fetch(`${GMAIL()}/users/me${path}`, { headers: { authorization: `Bearer ${t.accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(20_000) })
+  if (!res.ok) throw new Error(`Gmail answered ${res.status} reading mail`)
+  return res.json()
+}
+
+/** Ids of messages matching a Gmail search, newest first (at most 50). */
+export async function listMessageIds(c: GmailConfig, query: string, store: Store = getStore()): Promise<string[]> {
+  const j = (await gmailGet(c, `/messages?maxResults=50&q=${encodeURIComponent(query)}`, store)) as { messages?: { id: string }[] }
+  return (j.messages ?? []).map((m) => m.id)
+}
+
+export async function getMessage(c: GmailConfig, id: string, store: Store = getStore()): Promise<MailMessage> {
+  return parseGmailMessage((await gmailGet(c, `/messages/${encodeURIComponent(id)}?format=full`, store)) as Parameters<typeof parseGmailMessage>[0])
 }

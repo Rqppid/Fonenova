@@ -34,6 +34,9 @@ export type StoreKey =
   | 'meta:ledger'
   | 'meta:expenses'
   | 'meta:expenses-archive'
+  | 'offers'
+  | 'offers:seen'
+  | 'offers:status'
 
 export type ReadResult = { kind: 'ok'; value: unknown } | { kind: 'missing' } | { kind: 'invalid'; message: string }
 
@@ -74,6 +77,9 @@ const FILES: Record<StoreKey, string> = {
   'meta:ledger': 'generated/ledger.meta.json',
   'meta:expenses': 'generated/expenses.meta.json',
   'meta:expenses-archive': 'generated/expenses-archive.meta.json',
+  offers: 'offers/offers.json',
+  'offers:seen': 'offers/seen.json',
+  'offers:status': 'offers/status.json',
 }
 
 const SECRET_KEYS = new Set<StoreKey>(['xero:tokens', 'onedrive:tokens', 'gmail:tokens'])

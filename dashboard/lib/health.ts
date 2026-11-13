@@ -8,6 +8,7 @@
  * missing ping and emails you too, so silence really does mean all is well.
  */
 import type { MakeStatus } from './make'
+import type { OffersStatus } from './offers/types'
 import type { PaymentsHealth, PaymentsResult } from './payments-types'
 import type { SourceStatus } from './sync-core'
 import type { IsoDate, XeroInvoice, XeroSnapshot } from './types'
@@ -39,6 +40,8 @@ export interface HealthInput {
   watchdogConfigured: boolean
   /** Invoice numbers the owner confirmed were never used (e.g. deleted in Invoice2Go). */
   ignoredInvoiceNumbers: string[]
+  /** The offer check's last run (lib/offers/ingest.ts). Absent until it has first run: no check. */
+  offers?: OffersStatus | null
   /** The payments service's /api/health answer. Absent or not-configured: no check (Preview, local). */
   payments?: PaymentsResult<PaymentsHealth>
 }
@@ -148,6 +151,14 @@ export function healthChecks(h: HealthInput): HealthCheck[] {
     }
     const { creditsUsed: used, creditsLimit: limit } = h.make
     if (used !== null && limit !== null && used >= limit * 0.8) add({ id: 'make-credits', level: used >= limit * 0.95 ? 'red' : 'amber', title: 'Make credits nearly used up', detail: `${used.toLocaleString('en-GB')} of ${limit.toLocaleString('en-GB')} this period. At zero every scenario stops.`, fix: 'Upgrade the Make plan or wait for the reset.' })
+  }
+
+  // Mobile One offers read from Gmail every 5 minutes (QStash).
+  if (h.offers) {
+    const mins = (h.now.getTime() - Date.parse(h.offers.lastRunAt)) / 60_000
+    if (mins > 30) add({ id: 'offers', level: 'red', title: 'Mobile One offers are not being checked', detail: `Last check ${Math.round(mins / 60) >= 2 ? `${Math.round(mins / 60)} h` : `${Math.round(mins)} min`} ago.`, fix: 'Check the QStash schedule in Upstash calls /api/cron/offers every 5 minutes with the CRON_SECRET.' })
+    else if (!h.offers.ok) add({ id: 'offers', level: 'red', title: 'Mobile One offers could not be read', detail: h.offers.error ?? 'The last check failed.', fix: 'Open Offers to see why. Usually Gmail needs connecting again in Settings.' })
+    else add({ id: 'offers', level: 'ok', title: 'Mobile One offers', detail: `Checked ${Math.round(mins)} min ago.` })
   }
 
   // Revolut payment matching (the fonenova-payments service).
