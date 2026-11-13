@@ -37,6 +37,7 @@ export type StoreKey =
   | 'offers'
   | 'offers:seen'
   | 'offers:status'
+  | 'offers:clients'
 
 export type ReadResult = { kind: 'ok'; value: unknown } | { kind: 'missing' } | { kind: 'invalid'; message: string }
 
@@ -80,6 +81,7 @@ const FILES: Record<StoreKey, string> = {
   offers: 'offers/offers.json',
   'offers:seen': 'offers/seen.json',
   'offers:status': 'offers/status.json',
+  'offers:clients': 'offers/clients.json',
 }
 
 const SECRET_KEYS = new Set<StoreKey>(['xero:tokens', 'onedrive:tokens', 'gmail:tokens'])

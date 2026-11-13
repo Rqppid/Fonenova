@@ -3,11 +3,15 @@
  * Only these shapes are accepted; anything else is refused with a plain reason.
  */
 import crypto from 'node:crypto'
+import type { Client } from './clients'
+import { priceOffer, toPricing, type PricingInput } from './pricing'
 import type { Offer, OfferLine, OfferStatus } from './types'
 
 export type OfferEdit =
   | { action: 'save'; id: string; lines: OfferLine[] }
   | { action: 'status'; id: string; status: OfferStatus }
+  | { action: 'price'; id: string; input: PricingInput }
+  | { action: 'unprice'; id: string }
 
 type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -23,7 +27,22 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     if (b.status !== 'needs_review' && b.status !== 'ready' && b.status !== 'dismissed') return { ok: false, error: 'status must be needs_review, ready or dismissed' }
     return { ok: true, value: { action: 'status', id, status: b.status } }
   }
-  if (b.action !== 'save') return { ok: false, error: 'action must be save or status' }
+  if (b.action === 'unprice') return { ok: true, value: { action: 'unprice', id } }
+  if (b.action === 'price') {
+    const clientId = str(b.clientId, 40)
+    if (!clientId || !/^c_[a-z0-9]{2,24}$/.test(clientId)) return { ok: false, error: 'Choose a client' }
+    const margin = b.marginCents === null || b.marginCents === undefined ? null : b.marginCents
+    if (margin !== null && (typeof margin !== 'number' || !Number.isSafeInteger(margin))) return { ok: false, error: 'The margin must be a whole number of cents' }
+    const raw = b.overrides ?? {}
+    if (typeof raw !== 'object' || Array.isArray(raw) || raw === null) return { ok: false, error: 'overrides must be an object' }
+    const overrides: Record<string, number> = {}
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (!/^[a-f0-9]{6,24}$/.test(k) || typeof v !== 'number' || !Number.isSafeInteger(v)) return { ok: false, error: 'A per-line margin must be a whole number of cents' }
+      overrides[k] = v
+    }
+    return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true } } }
+  }
+  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price or unprice' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
   const lines: OfferLine[] = []
   for (const [i, raw] of (b.lines as unknown[]).entries()) {
@@ -48,12 +67,30 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
 }
 
 /** The offer after an edit, with the change in its history. Ready needs at least one line. */
-export function applyEdit(o: Offer, e: OfferEdit, now: string): Offer | { error: string } {
+export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly Client[] = []): Offer | { error: string } {
+  const log = (what: string) => [...o.audit, { at: now, what }].slice(-50)
+  if (e.action === 'unprice') {
+    if (!o.pricing) return { error: 'This offer is not priced' }
+    const { pricing: _p, ...rest } = o
+    return { ...rest, updatedAt: now, audit: log('Price removed') }
+  }
+  if (e.action === 'price') {
+    if (o.status !== 'ready') return { error: 'Mark the offer reviewed before pricing it' }
+    const client = clients.find((c) => c.id === e.input.clientId)
+    if (!client) return { error: 'That client no longer exists' }
+    const r = priceOffer(o.lines, client, e.input)
+    if (!r.ok) return { error: r.errors[0] ?? (r.needsAck ? `Tick the box to confirm the ${r.lowCount} line${r.lowCount === 1 ? '' : 's'} under the minimum margin` : 'This offer cannot be priced yet') }
+    const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return { ...o, pricing: toPricing(e.input, client, now), updatedAt: now, audit: log(`Priced for ${client.name}: sale ${eur(r.totals.saleCents)}, profit ${eur(r.totals.profitCents)}`) }
+  }
+  // Changing the lines or the status makes any saved price stale, so it is removed with a note.
+  const { pricing, ...bare } = o
+  const stale = pricing ? '. Price removed: price it again' : ''
   if (e.action === 'save') {
     if (o.status === 'dismissed') return { error: 'Restore this offer before editing it' }
-    return { ...o, lines: e.lines, updatedAt: now, audit: [...o.audit, { at: now, what: `Lines edited (${e.lines.length})` }].slice(-50) }
+    return { ...bare, lines: e.lines, updatedAt: now, audit: log(`Lines edited (${e.lines.length})${stale}`) }
   }
   if (e.status === 'ready' && !o.lines.length) return { error: 'An offer needs at least one line to be ready' }
   const what = e.status === 'ready' ? 'Marked reviewed' : e.status === 'dismissed' ? 'Marked not an offer' : 'Back to review'
-  return { ...o, status: e.status, updatedAt: now, audit: [...o.audit, { at: now, what }].slice(-50) }
+  return { ...(e.status === 'ready' ? o : bare), status: e.status, updatedAt: now, audit: log(`${what}${e.status === 'ready' ? '' : stale}`) }
 }

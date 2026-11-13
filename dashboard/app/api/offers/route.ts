@@ -1,5 +1,6 @@
 import { applyEdit, checkEdit } from '@/lib/offers/edit'
 import type { Offer } from '@/lib/offers/types'
+import { loadClients } from '@/lib/offers/store'
 import { guard, paymentsJson as json } from '@/lib/payments-guard'
 import { getJson, getStore } from '@/lib/store'
 
@@ -12,11 +13,12 @@ export async function PUT(req: Request) {
   const checked = checkEdit(await req.json().catch(() => null))
   if (!checked.ok) return json({ error: checked.error }, 400)
   const store = getStore()
+  const clients = checked.value.action === 'price' ? await loadClients() : []
   const out = await store.withLock('offers', async () => {
     const offers = (await getJson<Offer[]>(store, 'offers')) ?? []
     const i = offers.findIndex((o) => o.id === checked.value.id)
     if (i < 0) return { error: 'That offer no longer exists', status: 404 }
-    const next = applyEdit(offers[i], checked.value, new Date().toISOString())
+    const next = applyEdit(offers[i], checked.value, new Date().toISOString(), clients)
     if ('error' in next) return { error: next.error, status: 409 }
     offers[i] = next
     await store.set('offers', offers)

@@ -18,6 +18,18 @@ export interface OfferLine {
   note: string | null
 }
 
+/** How an offer is priced for one client. Sale prices come from this, never from the browser. */
+export interface OfferPricing {
+  clientId: string
+  /** The per-unit margin for the whole offer (manual clients), in cents. Null for fixed clients. */
+  marginCents: number | null
+  /** Per-line margins that replace the offer margin, by line id. */
+  overrides: Record<string, number>
+  /** Hamza ticked "I know N lines are under the minimum". */
+  ackLow: boolean
+  pricedAt: string
+}
+
 export interface Offer {
   id: string
   status: OfferStatus
@@ -33,6 +45,8 @@ export interface Offer {
   /** The email body, cleaned (quotes and signature removed), for the review screen. */
   text: string
   lines: OfferLine[]
+  /** Set once the offer is priced for a client; cleared if the lines or status change. */
+  pricing?: OfferPricing
   createdAt: string
   updatedAt: string
   audit: { at: string; what: string }[]
