@@ -24,6 +24,8 @@ export interface IngestDeps {
   list: (query: string) => Promise<string[]>
   get: (id: string) => Promise<MailMessage>
   read: (text: string, subject: string) => Promise<ParsedOffer>
+  /** Did we already reply in this thread after the offer? Optional; a failure keeps the offer for review. */
+  replied?: (threadId: string, afterIso: string) => Promise<boolean>
   notify: (text: string, link?: { label: string; url: string }) => Promise<boolean>
   now?: Date
   dashboardUrl?: string
@@ -56,15 +58,20 @@ export async function ingestOffers(d: IngestDeps): Promise<IngestResult> {
       const parsed = await d.read(text, m.subject)
       done.push(id)
       if (!parsed.isOffer) continue
+      // Already answered by hand (the old way): keep it out of the review list, and don't ping.
+      const answered = d.replied ? await d.replied(m.threadId, m.receivedAt).catch(() => false) : false
       found.push({
         id: `of_${m.id}`,
-        status: 'needs_review',
+        status: answered ? 'dismissed' : 'needs_review',
         source: { gmailMessageId: m.id, threadId: m.threadId, rfcMessageId: m.rfcMessageId, from: m.from, to: m.to, subject: m.subject, receivedAt: m.receivedAt },
         text: text.slice(0, 4000),
         lines: parsed.lines,
         createdAt: now,
         updatedAt: now,
-        audit: [{ at: now, what: `Read from email: ${parsed.lines.length} line${parsed.lines.length === 1 ? '' : 's'}` }],
+        audit: [
+          { at: now, what: `Read from email: ${parsed.lines.length} line${parsed.lines.length === 1 ? '' : 's'}` },
+          ...(answered ? [{ at: now, what: 'You already replied to this by email, so it was left out of review. Restore it to price it.' }] : []),
+        ],
       })
     } catch (e) {
       // Not marked read: tried again next run (and dropped after 3 days by the search itself).
@@ -84,7 +91,7 @@ export async function ingestOffers(d: IngestDeps): Promise<IngestResult> {
 
   await d.store.set('offers:status', { lastRunAt: now, ok: errors.length === 0, checked: ids.length, added: added.length, error: errors[0] ?? null } satisfies OffersStatus)
 
-  for (const o of added) {
+  for (const o of added.filter((x) => x.status === 'needs_review')) {
     const flagged = [...offerFlags(o.lines).values()].filter((f) => f.length).length
     const text = [
       `New Mobile One offer: ${o.lines.length} line${o.lines.length === 1 ? '' : 's'}, ${offerUnits(o.lines)} units, cost ${eur(offerCostCents(o.lines))}.`,

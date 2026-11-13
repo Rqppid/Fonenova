@@ -122,7 +122,7 @@ export function MarginVatCard({ enabled, writable, vatEurCents }: { enabled: boo
 }
 
 const GMAIL_NOTICE: Record<string, string> = {
-  connected: 'Gmail connected. The weekly email will send on Fridays.',
+  connected: 'Gmail connected. Offers are read every 5 minutes. The Friday email stays off unless you switch it on below.',
   declined: 'Google sign-in was cancelled.',
   state: 'The Google sign-in expired or was opened in another browser. Try again.',
   'wrong-account': 'That Google account is not the dashboard’s account. Sign in with the allowed address.',
@@ -133,8 +133,16 @@ const GMAIL_NOTICE: Record<string, string> = {
 /** The Friday cash email: is Gmail connected, who gets it, when it last went, and a test button. */
 export function WeeklyEmailCard({ state, notice }: { state: WeeklyEmailState; notice: string | null }) {
   const router = useRouter()
-  const [busy, setBusy] = useState<'test' | 'off' | null>(null)
+  const [busy, setBusy] = useState<'test' | 'off' | 'friday' | null>(null)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  async function toggleFriday() {
+    setBusy('friday')
+    setResult(null)
+    const res = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ fridayEmail: !state.enabled }) }).catch(() => null)
+    if (!res || !res.ok) setResult({ ok: false, text: (await res?.json().catch(() => null))?.error ?? 'Could not save' })
+    router.refresh()
+    setBusy(null)
+  }
   async function test() {
     setBusy('test')
     setResult(null)
@@ -154,8 +162,8 @@ export function WeeklyEmailCard({ state, notice }: { state: WeeklyEmailState; no
   return (
     <section aria-labelledby="weekly-title" className="rounded-lg border border-line bg-surface">
       <div className="border-b border-line px-5 py-3">
-        <h2 id="weekly-title" className="flex items-center gap-1.5 text-[15px] font-semibold text-ink"><Mail className="h-4 w-4 text-ink-3" aria-hidden />Friday cash email</h2>
-        <p className="mt-0.5 text-[13px] leading-snug text-ink-2">Every Friday about 16:00 UK: who is late paying, what you must pay in the next 14 days against what should come in, Xero problems to fix, and drafts to approve. Sent from your own Gmail. The same connection reads Mobile One’s offers (read-only: it never changes or deletes mail).</p>
+        <h2 id="weekly-title" className="flex items-center gap-1.5 text-[15px] font-semibold text-ink"><Mail className="h-4 w-4 text-ink-3" aria-hidden />Gmail</h2>
+        <p className="mt-0.5 text-[13px] leading-snug text-ink-2">One connection to info@fonenova.com. It reads Mobile One’s offers (read-only: it never changes or deletes mail) and, only if you switch it on below, sends the Friday cash email.</p>
       </div>
       <div className="space-y-2 px-5 py-3 text-[13.5px]">
         {notice && GMAIL_NOTICE[notice] && <p role="status" className={cn('rounded-md px-3 py-2 text-[13px]', notice === 'connected' ? 'bg-gain-soft text-gain' : 'bg-warn-soft text-warn')}>{GMAIL_NOTICE[notice]}</p>}
@@ -163,18 +171,37 @@ export function WeeklyEmailCard({ state, notice }: { state: WeeklyEmailState; no
           <p className="text-ink-2">Not set up: needs the Google sign-in variables (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET).</p>
         ) : !state.connected ? (
           <div className="flex flex-wrap items-center gap-3">
-            <a href="/gmail/connect" className="inline-flex h-9 items-center rounded-md bg-navy px-3 text-[13px] font-medium text-white hover:bg-navy-2">Connect Gmail (send only)</a>
+            <a href="/gmail/connect" className="inline-flex h-9 items-center rounded-md bg-navy px-3 text-[13px] font-medium text-white hover:bg-navy-2">Connect Gmail</a>
             <span className="text-[13px] text-ink-2">Goes to {state.to}.</span>
           </div>
         ) : (
           <>
-            <p className="flex items-center gap-1.5 text-ink"><CircleCheck className="h-4 w-4 text-gain" aria-hidden />Sends from <strong className="font-medium">{state.from}</strong> to <strong className="font-medium">{state.to}</strong></p>
-            <p className="text-ink-2">
-              {last ? <>Last {last.test ? 'test ' : ''}send: {when(last.at)} · <span className={last.ok ? 'text-gain' : 'text-loss'}>{last.ok ? 'sent' : last.message}</span></> : 'Nothing sent yet.'}
-            </p>
+            <p className="flex items-center gap-1.5 text-ink"><CircleCheck className="h-4 w-4 text-gain" aria-hidden />Connected as <strong className="font-medium">{state.from}</strong> · {state.canRead ? 'reads offers' : <span className="text-warn">send-only: disconnect and connect again to read offers</span>}</p>
+            <div className="flex items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="font-medium text-ink">Friday cash email</p>
+                <p className="text-[13px] leading-snug text-ink-2">
+                  {state.enabled ? <>On: every Friday about 16:00 UK to {state.to}: who is late paying, what you must pay in the next 14 days against what should come in, Xero problems and drafts to approve.</> : 'Off: nothing is sent on Fridays.'}
+                </p>
+                <p className="mt-0.5 text-[13px] text-ink-2">
+                  {last ? <>Last {last.test ? 'test ' : ''}send: {when(last.at)} · <span className={last.ok ? 'text-gain' : 'text-loss'}>{last.ok ? 'sent' : last.message}</span></> : 'Nothing sent yet.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={state.enabled}
+                disabled={busy !== null}
+                onClick={toggleFriday}
+                className={cn('relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50', state.enabled ? 'bg-navy' : 'bg-line-strong')}
+              >
+                <span className={cn('inline-block h-5 w-5 rounded-full bg-white shadow transition-transform', state.enabled ? 'translate-x-6' : 'translate-x-1')} />
+                <span className="sr-only">Send the Friday cash email</span>
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2 pt-1">
               <button type="button" onClick={test} disabled={busy !== null} className="inline-flex h-9 items-center rounded-md bg-navy px-3 text-[13px] font-medium text-white hover:bg-navy-2 disabled:opacity-50">{busy === 'test' ? 'Sending…' : 'Send test email now'}</button>
-              <button type="button" onClick={disconnect} disabled={busy !== null} className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink disabled:opacity-50">Disconnect</button>
+              <button type="button" onClick={disconnect} disabled={busy !== null} className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink disabled:opacity-50" title="Also stops Mobile One offers being read">Disconnect</button>
             </div>
             {result && <p role="status" className={cn('text-[13px]', result.ok ? 'text-gain' : 'text-loss')}>{result.text}</p>}
           </>

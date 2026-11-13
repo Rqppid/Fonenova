@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { cronAuthorised } from '@/lib/cron'
-import { getMessage, gmailConfig, gmailConnected, listMessageIds } from '@/lib/gmail'
+import { getMessage, gmailConfig, gmailConnected, hasReplied, listMessageIds } from '@/lib/gmail'
 import { ingestOffers } from '@/lib/offers/ingest'
 import { readOffer } from '@/lib/offers/parse'
 import { notify } from '@/lib/offers/telegram'
@@ -30,6 +30,7 @@ async function run(req: Request) {
       list: (q) => listMessageIds(c, q, store),
       get: (id) => getMessage(c, id, store),
       read: (text, subject) => readOffer(text, subject),
+      replied: (threadId, afterIso) => hasReplied(c, threadId, afterIso, store),
       notify,
       dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''),
     })

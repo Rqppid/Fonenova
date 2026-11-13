@@ -238,6 +238,21 @@ export async function listMessageIds(c: GmailConfig, query: string, store: Store
   return (j.messages ?? []).map((m) => m.id)
 }
 
+/**
+ * Whether we (the connected account) already answered in this thread after a given time: a
+ * message labelled SENT that came after the offer. Used to leave offers already handled by hand
+ * out of the review list. Metadata only.
+ */
+export function threadHasReplyAfter(thread: { messages?: { internalDate?: string; labelIds?: string[] }[] }, afterIso: string): boolean {
+  const after = Date.parse(afterIso)
+  return (thread.messages ?? []).some((m) => (m.labelIds ?? []).includes('SENT') && Number(m.internalDate ?? 0) > after)
+}
+
+export async function hasReplied(c: GmailConfig, threadId: string, afterIso: string, store: Store = getStore()): Promise<boolean> {
+  const t = await gmailGet(c, `/threads/${encodeURIComponent(threadId)}?format=minimal`, store)
+  return threadHasReplyAfter(t as Parameters<typeof threadHasReplyAfter>[0], afterIso)
+}
+
 export async function getMessage(c: GmailConfig, id: string, store: Store = getStore()): Promise<MailMessage> {
   return parseGmailMessage((await gmailGet(c, `/messages/${encodeURIComponent(id)}?format=full`, store)) as Parameters<typeof parseGmailMessage>[0])
 }

@@ -2,7 +2,7 @@
  * Sends the Friday cash email: loads the same data the page does, builds the digest and sends it
  * through the connected Gmail account. Records the outcome so Settings can show the last send.
  */
-import { getDataSource, loadFxRate, loadXeroState } from './data-source'
+import { getDataSource, loadFxRate, loadSettings, loadXeroState } from './data-source'
 import { buildDigest, type Digest } from './digest'
 import { gmailConfig, gmailConnected, sendGmail } from './gmail'
 import { liveView } from './live-view'
@@ -68,6 +68,10 @@ export async function sendDigest(opts: { test?: boolean } = {}): Promise<DigestS
 export interface WeeklyEmailState {
   configured: boolean
   connected: boolean
+  /** The Friday email is switched on in Settings. */
+  enabled: boolean
+  /** The connection can read mail (Offers needs it). */
+  canRead: boolean
   from: string | null
   to: string | null
   last: DigestStatus | null
@@ -75,11 +79,12 @@ export interface WeeklyEmailState {
 
 export async function loadWeeklyEmailState(): Promise<WeeklyEmailState> {
   const c = gmailConfig()
-  if (!c) return { configured: false, connected: false, from: null, to: null, last: null }
+  if (!c) return { configured: false, connected: false, enabled: false, canRead: false, from: null, to: null, last: null }
+  const enabled = await loadSettings().then((s) => s.fridayEmail, () => false)
   try {
     const [g, last] = await Promise.all([gmailConnected(), lastDigest()])
-    return { configured: true, connected: g.connected, from: g.email, to: c.to, last }
+    return { configured: true, connected: g.connected, enabled, canRead: g.canRead, from: g.email, to: c.to, last }
   } catch {
-    return { configured: true, connected: false, from: null, to: c.to, last: null }
+    return { configured: true, connected: false, enabled, canRead: false, from: null, to: c.to, last: null }
   }
 }
