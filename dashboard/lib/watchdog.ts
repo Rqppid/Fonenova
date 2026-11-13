@@ -11,6 +11,8 @@ import { gmailConfig, gmailConnected } from './gmail'
 import { healthChecks, healthSummary, type HealthCheck } from './health'
 import { loadMakeStatus } from './make'
 import { getHealth as getPaymentsHealth } from './payments-source'
+import type { OffersStatus } from './offers/types'
+import { getJson, getStore } from './store'
 import { todayIso } from './periods'
 import type { SourceStatus } from './sync-core'
 
@@ -21,13 +23,14 @@ const makeConfigured = () => !!(process.env.MAKE_API_TOKEN && process.env.MAKE_S
  * service; the dashboard page passes a shorter limit so a hung service cannot hold the page up.
  */
 export async function loadHealth(sources: SourceStatus[], opts: { paymentsTimeoutMs?: number } = {}): Promise<HealthCheck[]> {
-  const [xero, oneDrive, make, settings, gmail, payments] = await Promise.all([
+  const [xero, oneDrive, make, settings, gmail, payments, offers] = await Promise.all([
     loadXeroState(),
     loadOneDriveState(),
     loadMakeStatus(),
     loadSettings(),
     gmailConfig() ? gmailConnected().then((g) => ({ configured: true, connected: g.connected }), () => ({ configured: true, connected: false })) : Promise.resolve({ configured: false, connected: false }),
     getPaymentsHealth(opts.paymentsTimeoutMs),
+    getJson<OffersStatus>(getStore(), 'offers:status').catch(() => null),
   ])
   return healthChecks({
     now: new Date(),
@@ -42,6 +45,7 @@ export async function loadHealth(sources: SourceStatus[], opts: { paymentsTimeou
     watchdogConfigured: !!process.env.HEALTHCHECK_URL,
     ignoredInvoiceNumbers: settings.ignoredInvoiceNumbers,
     payments,
+    offers,
   })
 }
 

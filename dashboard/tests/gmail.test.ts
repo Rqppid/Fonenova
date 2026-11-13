@@ -18,11 +18,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('Gmail (send only)', () => {
-  it('asks for send-only access with a refresh token, for the allowed account', () => {
+describe('Gmail', () => {
+  it('asks for send and read-only access with a refresh token, for the allowed account', () => {
     const { url } = startGmailAuth(gmailConfig()!)
     const q = new URL(url).searchParams
-    expect(q.get('scope')).toBe('openid email https://www.googleapis.com/auth/gmail.send')
+    expect(q.get('scope')).toBe('openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly')
+    expect(q.get('scope')).not.toMatch(/gmail\.modify|mail\.google\.com/) // read, never change or delete
     expect([q.get('access_type'), q.get('prompt'), q.get('login_hint'), q.get('redirect_uri')]).toEqual(['offline', 'consent', 'info@fonenova.com', 'https://dashboard.fonenova.com/gmail/callback'])
   })
 
@@ -51,5 +52,14 @@ describe('Gmail (send only)', () => {
   it('encodes the body so long lines and non-ASCII survive', () => {
     const m = mimeMessage({ from: 'a@b.c', to: 'd@e.f', subject: 'x', text: '€'.repeat(100), html: '<p>ok</p>' })
     expect(m.split('\r\n').every((l) => l.length <= 998)).toBe(true)
+  })
+})
+
+describe('Gmail read access', () => {
+  it('knows a token saved before reading existed is send-only', async () => {
+    const { scopeCanRead } = await import('@/lib/gmail')
+    expect(scopeCanRead(undefined)).toBe(false)
+    expect(scopeCanRead('openid email https://www.googleapis.com/auth/gmail.send')).toBe(false)
+    expect(scopeCanRead('https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly')).toBe(true)
   })
 })

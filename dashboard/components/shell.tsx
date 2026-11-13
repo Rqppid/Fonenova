@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { AlertTriangle, Building2, Calculator, Landmark, FileMinus2, LayoutDashboard, Link2, LogOut, Menu, Package, Receipt, Settings, Users } from 'lucide-react'
+import { AlertTriangle, Building2, Calculator, Inbox, Landmark, FileMinus2, LayoutDashboard, Link2, LogOut, Menu, Package, Receipt, Settings, Users } from 'lucide-react'
 import { BrandMark, BrandName } from '@/components/brand'
 import { Sheet } from '@/components/ui/sheet'
 import { useSection, type Section } from '@/lib/sections'
@@ -14,6 +14,7 @@ const GROUPS: { title: string | null; items: Item[] }[] = [
   { title: null, items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
   { title: 'Sales', items: [
     { id: 'orders', label: 'Orders', icon: Package },
+    { route: '/offers', label: 'Offers', icon: Inbox },
     { id: 'deal-check', label: 'Check a deal', icon: Calculator },
     { id: 'matching', label: 'Invoice matching', icon: Link2 },
     { route: '/payments', label: 'Payments', icon: Landmark },
