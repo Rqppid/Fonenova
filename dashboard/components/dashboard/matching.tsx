@@ -174,3 +174,60 @@ export function MatchingPanel({ matching, connected, pairs, orders, writable, on
     </div>
   )
 }
+
+/**
+ * On the Orders page: Xero sales invoices that are not an order yet, so a new invoice is never
+ * invisible there. They are not counted in profit until paired with their bill; confirming the
+ * suggested bill makes them an order, exactly as on the Invoice matching page.
+ */
+export function NewInXero({ matching, writable, onMatch }: { matching: Matching | null; writable: boolean; onMatch: () => void }) {
+  const router = useRouter()
+  const { money } = useMoney()
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const list = matching?.suggestions ?? []
+  if (!list.length) return null
+
+  async function confirm(invoiceId: string, billId: string) {
+    setBusy(invoiceId)
+    setError(null)
+    const res = await fetch('/api/xero-pairs', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'confirm', invoiceId, billId }) }).catch(() => null)
+    if (!res || !res.ok) setError((await res?.json().catch(() => null))?.error ?? 'Could not save')
+    router.refresh()
+    setBusy(null)
+  }
+
+  const total = list.reduce((n, s) => n + s.invoice.totalCents, 0)
+  return (
+    <section aria-labelledby="new-in-xero" data-testid="new-in-xero" className="mb-4 rounded-lg border border-warn/40 bg-warn-soft/40">
+      <div className="border-b border-line px-5 py-3">
+        <h2 id="new-in-xero" className="text-[15px] font-semibold text-ink">New in Xero: not yet an order <span className="ml-1 font-normal text-ink-2">{list.length} · {money(total)} invoiced</span></h2>
+        <p className="mt-0.5 text-[13px] leading-snug text-ink-2">These sales invoices are in Xero but not in the ledger or a confirmed pair, so they are not in the orders or the profit below yet. Confirm the bill to make each one an order.</p>
+      </div>
+      {error && <p role="alert" className="mx-5 mt-3 rounded-md border border-loss/30 bg-loss-soft px-3 py-2 text-[13px] text-loss">{error}</p>}
+      <ul className="divide-y divide-line">
+        {list.map((s) => (
+          <li key={s.invoice.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3" data-testid="new-invoice">
+            <div className="min-w-0">
+              <div className="text-[13.5px] font-medium text-ink">Invoice {s.invoice.number || s.invoice.reference} · {s.invoice.contactName}</div>
+              <div className="text-[12.5px] text-ink-2">
+                {s.invoice.date ? formatDate(s.invoice.date) : 'no date'} · <span className="font-semibold text-ink">{money(s.invoice.totalCents)}</span>
+                {s.invoice.dueDate && <> · due {formatDate(s.invoice.dueDate)}</>}
+                {s.invoice.status === 'DRAFT' && <span className="text-warn"> · draft in Xero</span>}
+              </div>
+              <div className="text-[12.5px] text-ink-2">
+                {s.bill
+                  ? <>Best bill: {s.bill.number || s.bill.reference} · {s.bill.contactName} · {money(s.bill.totalCents)} · margin {pct(s.margin)} · {s.dayGap} day{s.dayGap === 1 ? '' : 's'} apart</>
+                  : 'No supplier bill fits yet. It is suggested here once Mobile One’s bill is in Xero.'}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {s.bill && <Button size="sm" variant="primary" disabled={!writable || busy !== null} onClick={() => confirm(s.invoice.id, s.bill!.id)}>{busy === s.invoice.id ? 'Saving…' : 'Confirm pair'}</Button>}
+              <Button size="sm" variant="ghost" onClick={onMatch}>{s.bill ? 'Choose another bill' : 'Match on Invoice matching'}</Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}

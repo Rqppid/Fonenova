@@ -8,7 +8,7 @@ import {
 } from '@/lib/metrics'
 import { useSection, type Section } from '@/lib/sections'
 import { PartiesTable } from './parties-table'
-import { MatchingPanel } from './matching'
+import { MatchingPanel, NewInXero } from './matching'
 import { CreditNotesTable } from './credit-notes'
 import { ChecksList } from './reconcile-badge'
 import {
@@ -295,6 +295,7 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
         </div>
       )}
 
+      {section === 'orders' && <NewInXero matching={matching} writable={overheadsWritable} onMatch={() => go('matching')} />}
       {section === 'orders' && (
         <OrdersTable
           orders={view.orders}
