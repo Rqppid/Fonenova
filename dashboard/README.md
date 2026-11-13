@@ -171,6 +171,12 @@ Gmail needs read access: new connections ask for `gmail.send` and `gmail.readonl
 never change or delete). Connect Gmail again in Settings once; the consent screen must be
 Internal (Workspace) or the token expires after 7 days.
 
+The Friday cash email is a separate switch in Settings → Gmail, **off by default** (the same Gmail
+connection serves offers, so connecting it does not start the email). `/api/cron/digest` answers
+"switched off" and sends nothing unless it is on; "Send test email now" always works. An offer
+whose Gmail thread already has our reply (answered by hand) is stored as "not an offer" with a
+note and no Telegram ping; Restore brings it back.
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data

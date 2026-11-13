@@ -133,6 +133,34 @@ describe('picking up offers from Gmail', () => {
     expect(await getJson(store, 'offers:status')).toMatchObject({ ok: true, checked: 0, added: 0 })
   })
 
+  it('leaves an offer you already replied to out of review, without a ping, and keeps one it cannot check', async () => {
+    const { getStore, getJson } = await import('@/lib/store')
+    const { ingestOffers } = await import('@/lib/offers/ingest')
+    const store = getStore()
+    const notify = vi.fn(async () => true)
+    const replied = vi.fn(async (threadId: string) => {
+      if (threadId === 't-o1') return true
+      throw new Error('thread lookup failed')
+    })
+    const r = await ingestOffers({ store, list: async () => ['o1', 'o2'], get: async (id: string) => mails[id], read, replied, notify, dashboardUrl: 'https://dashboard.example.test' })
+    const offers = (await getJson<{ id: string; status: string; audit: { what: string }[] }[]>(store, 'offers'))!
+    expect(Object.fromEntries(offers.map((o) => [o.id, o.status]))).toEqual({ of_o1: 'dismissed', of_o2: 'needs_review' })
+    expect(offers.find((o) => o.id === 'of_o1')!.audit.map((a) => a.what).join(' ')).toContain('already replied')
+    expect(r.added).toHaveLength(2)
+    expect(notify).toHaveBeenCalledTimes(1) // only the one that still needs review
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('7 Pro'), expect.anything())
+  })
+
+  it('knows a thread has our reply when a SENT message came after the offer', async () => {
+    const { threadHasReplyAfter } = await import('@/lib/gmail')
+    const at = '2026-11-12T10:29:42.000Z'
+    const t = (m: { internalDate: string; labelIds: string[] }[]) => ({ messages: m })
+    expect(threadHasReplyAfter(t([{ internalDate: String(Date.parse(at)), labelIds: ['INBOX'] }]), at)).toBe(false)
+    expect(threadHasReplyAfter(t([{ internalDate: String(Date.parse(at)), labelIds: ['INBOX'] }, { internalDate: String(Date.parse(at) + 600_000), labelIds: ['SENT'] }]), at)).toBe(true)
+    expect(threadHasReplyAfter(t([{ internalDate: String(Date.parse(at) - 1000), labelIds: ['SENT'] }]), at)).toBe(false)
+    expect(threadHasReplyAfter({}, at)).toBe(false)
+  })
+
   it('leaves an email it could not read for the next run, and records the error', async () => {
     const { getStore, getJson } = await import('@/lib/store')
     const { ingestOffers } = await import('@/lib/offers/ingest')
@@ -191,5 +219,55 @@ describe('watchdog', () => {
     expect(of({ lastRunAt: '2026-11-13T09:00:00Z', ok: true, checked: 0, added: 0, error: null })?.level).toBe('red')
     expect(of({ lastRunAt: '2026-11-13T09:58:00Z', ok: false, checked: 0, added: 0, error: 'Gmail is connected send-only' })).toMatchObject({ level: 'red', detail: 'Gmail is connected send-only' })
     expect(of(null)).toBeUndefined()
+  })
+
+  it('shows a Gmail-connection error saved before reconnecting as "waiting", not red; a real failure stays red', async () => {
+    const { healthChecks } = await import('@/lib/health')
+    const base = { now: new Date('2026-11-13T10:00:00Z'), today: '2026-11-13', sources: [], xero: { configured: false, connected: false, snapshot: null }, oneDrive: { configured: false, connected: false }, make: null, makeConfigured: true, watchdogConfigured: true, ignoredInvoiceNumbers: [] }
+    const st = (error: string) => ({ lastRunAt: '2026-11-13T09:58:00Z', ok: false, checked: 0, added: 0, error })
+    const of = (error: string, gmail: unknown) => healthChecks({ ...base, gmail, offers: st(error) } as never).find((c) => c.id === 'offers')
+    expect(of('Gmail is not connected', { configured: true, connected: true, canRead: true })?.level).toBe('amber')
+    expect(of('Gmail is not connected', { configured: true, connected: false, canRead: false })?.level).toBe('red')
+    expect(of('Gmail answered 500 reading mail', { configured: true, connected: true, canRead: true })?.level).toBe('red')
+  })
+})
+
+describe('the Gmail card', () => {
+  const state = { configured: true, connected: true, enabled: false, canRead: true, from: 'owner@example.test', to: 'owner@example.test', last: null }
+  it('shows one Gmail connection with the Friday email as a switch that is off, and no "send only" wording', async () => {
+    const { WeeklyEmailCard } = await import('@/components/dashboard/automations')
+    const off = renderToString(h(WeeklyEmailCard, { state, notice: null })).replace(/<!-- -->/g, '')
+    for (const t of ['>Gmail<', 'reads offers', 'Friday cash email', 'Off: nothing is sent on Fridays.', 'role="switch"', 'aria-checked="false"']) expect(off, t).toContain(t)
+    expect(off).not.toContain('send only')
+    const on = renderToString(h(WeeklyEmailCard, { state: { ...state, enabled: true }, notice: null })).replace(/<!-- -->/g, '')
+    expect(on).toContain('aria-checked="true"')
+    expect(on).toContain('every Friday about 16:00 UK')
+    const sendOnly = renderToString(h(WeeklyEmailCard, { state: { ...state, canRead: false }, notice: null })).replace(/<!-- -->/g, '')
+    expect(sendOnly).toContain('send-only: disconnect and connect again to read offers')
+    const none = renderToString(h(WeeklyEmailCard, { state: { ...state, connected: false }, notice: null }))
+    expect(none).toContain('Connect Gmail</a>')
+    expect(none).not.toContain('send only')
+  })
+})
+
+describe('the Friday email switch', () => {
+  it('is off by default, so connecting Gmail for offers does not start it, and the cron only sends when on', async () => {
+    const { getStore } = await import('@/lib/store')
+    const { loadSettings, saveSettings } = await import('@/lib/data-source')
+    const { loadWeeklyEmailState } = await import('@/lib/weekly')
+    Object.assign(process.env, { GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret' })
+    await getStore().set('gmail:tokens', { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3_600_000, email: 'owner@example.test', scope: 'openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly' })
+    expect((await loadSettings()).fridayEmail).toBe(false)
+    expect(await loadWeeklyEmailState()).toMatchObject({ connected: true, enabled: false, canRead: true })
+    const sent = vi.fn(async () => Response.json({ id: 'm' }))
+    vi.stubGlobal('fetch', sent)
+    const { GET } = await import('@/app/api/cron/digest/route')
+    const call = () => GET(new Request('https://dashboard.example.test/api/cron/digest', { headers: { authorization: 'Bearer cron-secret-0123456789' } }))
+    const off = await call()
+    expect([off.status, await off.json()]).toEqual([200, { ok: true, message: 'switched off' }])
+    expect(sent).not.toHaveBeenCalled()
+    expect(await getStore().get('digest:last')).toEqual({ kind: 'missing' })
+    await saveSettings({ ...(await loadSettings()), fridayEmail: true })
+    expect(await loadWeeklyEmailState()).toMatchObject({ enabled: true })
   })
 })

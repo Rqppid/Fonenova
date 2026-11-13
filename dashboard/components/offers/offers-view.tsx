@@ -77,7 +77,9 @@ function SetupNotes({ setup, status }: { setup: Setup; status: OffersStatus | nu
   else if (!setup.gmail.canRead) notes.push({ bad: true, text: <>Gmail is connected send-only, so offers can&apos;t be read yet. <a className="font-medium text-accent hover:underline" href="/gmail/connect">Connect Gmail again</a> and allow reading.</> })
   if (!setup.schedule) notes.push({ bad: true, text: 'CRON_SECRET is not set, so the 5-minute check cannot run.' })
   if (!setup.telegram) notes.push({ bad: false, text: 'Telegram is not set up (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID): new offers show here, without a ping.' })
-  if (status) notes.push({ bad: !status.ok, text: `Last check ${when(status.lastRunAt)}: ${status.ok ? `${status.checked} new email${status.checked === 1 ? '' : 's'} read, ${status.added} offer${status.added === 1 ? '' : 's'} added.` : `failed. ${status.error ?? ''}`}` })
+  const staleGmail = !!status && !status.ok && /^Gmail is (not connected|connected send-only)/.test(status.error ?? '') && !!setup.gmail?.connected && setup.gmail.canRead
+  if (staleGmail) notes.push({ bad: false, text: 'Gmail is connected now. The last check ran before that; the next one (within 5 minutes) replaces it.' })
+  else if (status) notes.push({ bad: !status.ok, text: `Last check ${when(status.lastRunAt)}: ${status.ok ? `${status.checked} new email${status.checked === 1 ? '' : 's'} read, ${status.added} offer${status.added === 1 ? '' : 's'} added.` : `failed. ${status.error ?? ''}`}` })
   else if (setup.gmail?.canRead) notes.push({ bad: false, text: 'The 5-minute check has not run yet.' })
   if (!notes.length) return null
   return (

@@ -44,8 +44,10 @@ describe('watchdog', () => {
   })
 
   it('warns when the alert channels themselves are missing', () => {
-    const c = healthChecks(base({ watchdogConfigured: false, makeConfigured: false, gmail: { configured: true, connected: false } }))
+    const c = healthChecks(base({ watchdogConfigured: false, makeConfigured: false, fridayEmail: true, gmail: { configured: true, connected: false } }))
     expect([level(c, 'watchdog'), level(c, 'make'), level(c, 'gmail')]).toEqual(['amber', 'amber', 'amber'])
+    // With the Friday email off, a missing Gmail is not a Friday-email problem (Offers reports it).
+    expect(level(healthChecks(base({ fridayEmail: false, gmail: { configured: true, connected: false } })), 'gmail')).toBeUndefined()
   })
 
   it('writes a summary with reds first', () => {
@@ -71,7 +73,10 @@ describe('reporting to the outside monitor', () => {
 
 describe('settings', () => {
   it('keeps older saved settings working and checks each change', () => {
-    expect(validateSettings({ marginSchemeVat: true })).toEqual({ marginSchemeVat: true, ignoredInvoiceNumbers: [] })
+    expect(validateSettings({ marginSchemeVat: true })).toEqual({ marginSchemeVat: true, ignoredInvoiceNumbers: [], fridayEmail: false })
+    expect(validateSettings({ marginSchemeVat: false, fridayEmail: true })).toMatchObject({ fridayEmail: true })
+    expect(validateSettingsPatch({ fridayEmail: true })).toEqual({ fridayEmail: true })
+    expect(validateSettingsPatch({ fridayEmail: 'yes' })).toBeNull()
     expect(validateSettingsPatch({ ignoredInvoiceNumbers: ['2026039'] })).toEqual({ ignoredInvoiceNumbers: ['2026039'] })
     expect(validateSettingsPatch({ ignoredInvoiceNumbers: ['<script>'] })).toBeNull()
     expect(validateSettingsPatch({})).toBeNull()

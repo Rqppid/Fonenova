@@ -305,9 +305,11 @@ export interface AppSettings {
   marginSchemeVat: boolean
   /** Invoice numbers the owner confirmed were never used, so the watchdog stops reporting them. */
   ignoredInvoiceNumbers: string[]
+  /** Send the Friday cash email. Off unless the owner switches it on: connecting Gmail (which Offers needs) must not start it. */
+  fridayEmail: boolean
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { marginSchemeVat: false, ignoredInvoiceNumbers: [] }
+export const DEFAULT_SETTINGS: AppSettings = { marginSchemeVat: false, ignoredInvoiceNumbers: [], fridayEmail: false }
 
 const invoiceNumbers = (v: unknown): string[] | null =>
   Array.isArray(v) && v.every((x) => typeof x === 'string' && /^[A-Za-z0-9/-]{1,30}$/.test(x)) ? [...new Set(v as string[])].slice(0, 200) : null
@@ -317,7 +319,7 @@ export function validateSettings(input: unknown): AppSettings | null {
   if (!input || typeof input !== 'object') return null
   const v = input as Record<string, unknown>
   if (typeof v.marginSchemeVat !== 'boolean') return null
-  return { marginSchemeVat: v.marginSchemeVat, ignoredInvoiceNumbers: invoiceNumbers(v.ignoredInvoiceNumbers ?? []) ?? [] }
+  return { marginSchemeVat: v.marginSchemeVat, ignoredInvoiceNumbers: invoiceNumbers(v.ignoredInvoiceNumbers ?? []) ?? [], fridayEmail: v.fridayEmail === true }
 }
 
 /** A change from the Settings page: any subset of the fields, each checked. */
@@ -328,6 +330,10 @@ export function validateSettingsPatch(input: unknown): Partial<AppSettings> | nu
   if ('marginSchemeVat' in v) {
     if (typeof v.marginSchemeVat !== 'boolean') return null
     patch.marginSchemeVat = v.marginSchemeVat
+  }
+  if ('fridayEmail' in v) {
+    if (typeof v.fridayEmail !== 'boolean') return null
+    patch.fridayEmail = v.fridayEmail
   }
   if ('ignoredInvoiceNumbers' in v) {
     const n = invoiceNumbers(v.ignoredInvoiceNumbers)
