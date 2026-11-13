@@ -177,6 +177,18 @@ connection serves offers, so connecting it does not start the email). `/api/cron
 whose Gmail thread already has our reply (answered by hand) is stored as "not an offer" with a
 note and no Telegram ping; Restore brings it back.
 
+### Offers phase 2: clients and pricing
+
+`/offers/clients` holds each client's margin rule, payment terms, contacts and Xero ContactID
+(`offers:clients` in the store; first run: Wave Phone manual, EU Telecoms fixed €4.00 locked, an
+empty test client). A reviewed offer gets a "Price for a client" panel (`lib/offers/pricing.ts`):
+sale = unit cost + margin in whole cents; fixed-locked clients allow no per-line changes; manual
+clients need a per-unit margin with optional per-line overrides; a line under €4.00 per unit needs
+a tick box; a line the review flagged cannot be priced. The server recomputes every price, and a
+saved price is removed if the lines or status change. `publicLines()` is the only shape meant for
+the client-facing page (description, quantity, sale price): it has no cost or margin field.
+Nothing is sent to anyone in this phase.
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data

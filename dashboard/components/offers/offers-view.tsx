@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Inbox, Plus, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { PricePanel } from '@/components/offers/price-panel'
+import type { Client } from '@/lib/offers/clients'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
 import { offerCostCents, offerFlags, offerUnits } from '@/lib/offers/check'
@@ -23,7 +25,7 @@ interface Setup {
   schedule: boolean
 }
 
-export function OffersView({ offers, status, setup, selected }: { offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null }) {
+export function OffersView({ offers, status, setup, selected, clients }: { offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null; clients: Client[] }) {
   const [openId, setOpenId] = useState<string | null>(selected ?? offers.find((o) => o.status === 'needs_review')?.id ?? null)
   const [showDismissed, setShowDismissed] = useState(false)
   const list = offers.filter((o) => showDismissed || o.status !== 'dismissed')
@@ -57,6 +59,7 @@ export function OffersView({ offers, status, setup, selected }: { offers: Offer[
                     <div className="mt-0.5 text-[12.5px] text-ink-2">
                       {when(o.source.receivedAt)} · {o.lines.length} line{o.lines.length === 1 ? '' : 's'} · {offerUnits(o.lines)} units · {eur(offerCostCents(o.lines))}
                     </div>
+                    {o.pricing && <div className="mt-0.5 text-[12.5px] font-medium text-gain">Priced for {clients.find((c) => c.id === o.pricing!.clientId)?.name ?? 'a client'}</div>}
                     {flagged > 0 && <div className="mt-0.5 flex items-center gap-1 text-[12.5px] text-loss"><AlertTriangle className="h-3.5 w-3.5" aria-hidden />{flagged} line{flagged === 1 ? '' : 's'} to check</div>}
                   </button>
                 </li>
@@ -64,7 +67,7 @@ export function OffersView({ offers, status, setup, selected }: { offers: Offer[
             })}
           </ul>
         </section>
-        {open ? <OfferDetail key={open.id + open.updatedAt} offer={open} /> : <section className="rounded-lg border border-line bg-surface px-5 py-10 text-center text-[13.5px] text-ink-2">Choose an offer to review it.</section>}
+        {open ? <OfferDetail key={open.id + open.updatedAt} offer={open} clients={clients} /> : <section className="rounded-lg border border-line bg-surface px-5 py-10 text-center text-[13.5px] text-ink-2">Choose an offer to review it.</section>}
       </div>
     </div>
   )
@@ -98,7 +101,7 @@ const fromDraft = (d: Draft): OfferLine | null => {
   return { id: d.id, model: d.model.trim(), storage: d.storage.trim() || null, grade: d.grade.trim() || null, qty, unitCostCents: cost, sourceText: d.sourceText, note: d.note }
 }
 
-export function OfferDetail({ offer }: { offer: Offer }) {
+export function OfferDetail({ offer, clients = [] }: { offer: Offer; clients?: Client[] }) {
   const router = useRouter()
   const [rows, setRows] = useState<Draft[]>(() => offer.lines.map(toDraft))
   const [busy, setBusy] = useState(false)
@@ -171,7 +174,7 @@ export function OfferDetail({ offer }: { offer: Offer }) {
           ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>
           : <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Restore</Button>}
       </div>
-      {offer.status === 'ready' && <p className="text-[12.5px] text-ink-2">Reviewed. Pricing for a client comes in the next phase.</p>}
+      {offer.status === 'ready' && <PricePanel key={offer.updatedAt} offer={offer} clients={clients} />}
 
       <details className="rounded-md border border-line">
         <summary className="cursor-pointer px-3 py-2 text-[13px] font-medium text-ink-2">The email as received</summary>
