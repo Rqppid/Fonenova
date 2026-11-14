@@ -38,6 +38,9 @@ export type StoreKey =
   | 'offers:seen'
   | 'offers:status'
   | 'offers:clients'
+  | 'xero-write:tokens'
+  | 'offers:invoice-hwm'
+  | 'offers:draft-settings'
 
 export type ReadResult = { kind: 'ok'; value: unknown } | { kind: 'missing' } | { kind: 'invalid'; message: string }
 
@@ -82,9 +85,12 @@ const FILES: Record<StoreKey, string> = {
   'offers:seen': 'offers/seen.json',
   'offers:status': 'offers/status.json',
   'offers:clients': 'offers/clients.json',
+  'xero-write:tokens': 'xero/write-tokens.json',
+  'offers:invoice-hwm': 'offers/invoice-hwm.json',
+  'offers:draft-settings': 'offers/draft-settings.json',
 }
 
-const SECRET_KEYS = new Set<StoreKey>(['xero:tokens', 'onedrive:tokens', 'gmail:tokens'])
+const SECRET_KEYS = new Set<StoreKey>(['xero:tokens', 'xero-write:tokens', 'onedrive:tokens', 'gmail:tokens'])
 
 export class FileStore implements Store {
   readonly name = 'Local data folder'

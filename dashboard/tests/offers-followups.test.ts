@@ -310,7 +310,8 @@ describe('telling the owner by email as well as Telegram', () => {
     const call = () => POST(new Request('https://dashboard.example.test/api/offers/answered', { method: 'POST', headers: { authorization: `Bearer ${WEBHOOK}`, 'content-type': 'application/json' }, body: JSON.stringify({ hash: 'a'.repeat(64) }) }))
     const r = await call()
     expect([r.status, (await r.json()).changed]).toEqual([200, true])
-    expect(mails).toHaveLength(1)
+    // The answer email first; the acceptance then also starts the follow-up work, which may mail more.
+    expect(mails.length).toBeGreaterThanOrEqual(1)
     expect(mails[0]).toContain('To: ') // goes to the dashboard's own address
     expect(mails[0]).toContain('Subject: ')
     // Now with Gmail not connected: status and Telegram are unaffected.
@@ -321,7 +322,7 @@ describe('telling the owner by email as well as Telegram', () => {
     expect([r2.status, (await r2.json()).changed]).toEqual([200, true])
     expect(mails).toHaveLength(0)
     expect((await stored()).status).toBe('accepted')
-    expect(pings).toHaveLength(1)
+    expect(pings.length).toBeGreaterThanOrEqual(1) // the answer ping, then the follow-up summary
   })
 })
 

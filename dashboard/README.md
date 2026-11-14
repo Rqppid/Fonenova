@@ -216,6 +216,18 @@ unreadable, check failed (the store did not answer: nothing was disconnected) or
 Real clients stay switched off until the order and invoice steps exist (`OFFERS_ALLOW_REAL_SEND`
 unset): until then offers go to the test client only.
 
+### Offers phase 4: after a client accepts
+
+When a client accepts, Quay Pilot does three things (and tells you on Telegram):
+
+1. **Reserves the order reference.** Real offers take the next `FN-ORD-###` after the ledger, the Xero pairs and any already reserved. Test offers use `TEST-###` and never use a real number.
+2. **Replies to Mobile One** in their original thread: "We accept the offer. Please proceed with the invoice." It goes by itself only if all of these hold: their offer is under 48 hours old, the accepted total equals what was priced, and you have not already replied in the thread. Otherwise it is held and the offer shows an **OK, send the reply** button. A **test** offer never reaches Mobile One: the would-be reply goes to your own inbox, outside their thread. Nothing real is sent while `OFFERS_ALLOW_REAL_SEND` is unset.
+3. **Creates a DRAFT invoice in Xero** (never approved, emailed or filed): the contact by ContactID, lines at the sale prices the client saw, EUR, due date from the client's terms, Reference = the order reference. The number is one more than the highest 7-digit sales invoice in Xero (any status) or the highest this dashboard raised, so there are no gaps. A draft with the same reference is adopted, never duplicated.
+
+Every step is retried by the 5-minute check; after three failed tries you get a Telegram message. The offer page has an **After acceptance** panel with both steps and a **Try again now** button.
+
+**Xero write connection (a second app, separate from the read-only one):** create an app in the Xero developer portal with redirect `https://dashboard.fonenova.com/xero-write/callback` and the scopes `offline_access accounting.invoices accounting.contacts.read accounting.settings.read` (override with `XERO_WRITE_SCOPES`), add its client id in Vercel as `XERO_WRITE_CLIENT_ID`, redeploy, then press **Connect Xero** in Settings, Xero draft invoices. Connect the **Demo Company** first: test offers may only create drafts in a demo organisation, real offers only in a live one, and the check runs against the organisation the token really reaches. Settings also holds the tax type, sales account and branding theme used on every draft: check them against invoice 2026047 before the first real offer.
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data

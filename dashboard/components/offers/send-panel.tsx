@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Send } from 'lucide-react'
+import { AfterAcceptance } from '@/components/offers/after-acceptance'
 import { Button } from '@/components/ui/button'
 import { ukTime } from '@/lib/format-uk'
 import type { Client } from '@/lib/offers/clients'
@@ -87,12 +88,13 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
 
   if (offer.status === 'accepted' || offer.status === 'declined' || offer.status === 'expired') {
     const text = offer.status === 'accepted'
-      ? `${last?.clientName ?? 'The client'} accepted${last?.test ? ' (test)' : ''}. ${last?.test ? 'Nothing else happens for a test.' : 'Reply to Mobile One and raise the invoice yourself for now; the next phase will do it.'}`
+      ? `${last?.clientName ?? 'The client'} accepted${last?.test ? ' (test)' : ''}.`
       : offer.status === 'declined' ? `${last?.clientName ?? 'The client'} declined.` : `${last?.clientName ?? 'The client'} did not answer before it expired.`
     return (
       <section aria-labelledby="send-title" className="space-y-3 rounded-md border border-line p-4" data-testid="send-panel">
         <h3 id="send-title" className="text-[14px] font-semibold text-ink capitalize">{offer.status}</h3>
         <p className="text-[13px] text-ink">{text}</p>
+        {offer.status === 'accepted' && <AfterAcceptance offer={offer} />}
         {errorBox}
         {offer.status !== 'accepted' && <Button size="sm" variant="primary" disabled={busy} onClick={() => act('unlock')}>{busy ? 'Working…' : 'Unlock to reprice'}</Button>}
         {history}

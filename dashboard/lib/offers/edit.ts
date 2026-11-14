@@ -15,6 +15,8 @@ export type OfferEdit =
   | { action: 'send'; id: string }
   | { action: 'withdraw'; id: string }
   | { action: 'unlock'; id: string }
+  | { action: 'reply_ok'; id: string }
+  | { action: 'fulfil_retry'; id: string }
 
 type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -31,7 +33,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     return { ok: true, value: { action: 'status', id, status: b.status } }
   }
   if (b.action === 'unprice') return { ok: true, value: { action: 'unprice', id } }
-  if (b.action === 'send' || b.action === 'withdraw' || b.action === 'unlock') return { ok: true, value: { action: b.action, id } }
+  if (b.action === 'send' || b.action === 'withdraw' || b.action === 'unlock' || b.action === 'reply_ok' || b.action === 'fulfil_retry') return { ok: true, value: { action: b.action, id } }
   if (b.action === 'price') {
     const clientId = str(b.clientId, 40)
     if (!clientId || !/^c_[a-z0-9]{2,24}$/.test(clientId)) return { ok: false, error: 'Choose a client' }
@@ -46,7 +48,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     }
     return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true } } }
   }
-  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw or unlock' }
+  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok or fulfil_retry' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
   const lines: OfferLine[] = []
   for (const [i, raw] of (b.lines as unknown[]).entries()) {
@@ -77,7 +79,7 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
   if (o.status === 'sent' || o.status === 'accepted' || o.status === 'declined' || o.status === 'expired') {
     return { error: o.status === 'sent' ? 'This offer has been sent. Withdraw it to change it.' : o.status === 'accepted' ? 'This offer was accepted, so it can no longer be changed.' : 'This offer was answered or expired. Unlock it to reprice it.' }
   }
-  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock') return { error: 'That action is handled separately' }
+  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry') return { error: 'That action is handled separately' }
   if (e.action === 'unprice') {
     if (!o.pricing) return { error: 'This offer is not priced' }
     const { pricing: _p, ...rest } = o

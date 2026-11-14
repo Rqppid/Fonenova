@@ -15,6 +15,9 @@ import { attentionItems } from '@/lib/attention'
 import { allocateCredits, expenseSummary } from '@/lib/metrics'
 import { draftsAwaiting } from '@/lib/xero/pairing'
 import { liveView } from '@/lib/live-view'
+import { loadDraftSettings } from '@/lib/offers/draft'
+import { getStore } from '@/lib/store'
+import { xeroWriteStatus } from '@/lib/xero/write'
 
 // Read the ledger on every request so a fresh import shows without a rebuild.
 export const dynamic = 'force-dynamic'
@@ -62,6 +65,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   }
 
   const { ledger } = result
+  const xeroWrite = { ...(await xeroWriteStatus(getStore())), settings: await loadDraftSettings(getStore()) }
   // Work waiting, for the sidebar. Recomputed on every load, so a decided row drops off at once.
   // Same view the dashboard shows: ledger plus Xero orders, with the live Xero checks.
   const merged = liveView(ledger, xero.snapshot, xero.pairs, todayIso())
@@ -75,7 +79,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   }
   return (
     <Shell email={email} badges={badges}>
-      <Dashboard ledger={toClientLedger(ledger)} today={todayIso()} fx={fx} overheads={oh.overheads} overheadsSaved={oh.saved} overheadsError={oh.error ?? null} overheadsWritable={overheadsWritable()} xero={xero} notice={notice} expenses={exp.log} expenseOverrides={exp.overrides} expensesError={exp.error ?? null} sources={sources} oneDrive={oneDrive} oneDriveNotice={oneDriveNotice} hosted={isHosted()} settings={settings} make={make} weekly={weekly} gmailNotice={gmailNotice} askState={askState} health={health} />
+      <Dashboard ledger={toClientLedger(ledger)} today={todayIso()} fx={fx} overheads={oh.overheads} overheadsSaved={oh.saved} overheadsError={oh.error ?? null} overheadsWritable={overheadsWritable()} xero={xero} notice={notice} expenses={exp.log} expenseOverrides={exp.overrides} expensesError={exp.error ?? null} sources={sources} oneDrive={oneDrive} oneDriveNotice={oneDriveNotice} hosted={isHosted()} settings={settings} make={make} weekly={weekly} gmailNotice={gmailNotice} xeroWrite={xeroWrite} xeroWriteNotice={params.xerowrite ?? null} askState={askState} health={health} />
     </Shell>
   )
 }
