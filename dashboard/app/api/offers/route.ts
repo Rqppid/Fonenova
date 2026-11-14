@@ -1,5 +1,6 @@
 import { applyEdit, checkEdit } from '@/lib/offers/edit'
 import type { Offer } from '@/lib/offers/types'
+import { makeTestOffer, openTestOffers, TEST_OFFER_CAP } from '@/lib/offers/test-offer'
 import { gmailConfig, gmailConnected, sendGmail } from '@/lib/gmail'
 import { loadClients } from '@/lib/offers/store'
 import { approveReply, fulfilOffer, retryFulfilment } from '@/lib/offers/fulfil'
@@ -21,6 +22,16 @@ export async function PUT(req: Request) {
   if (!checked.ok) return json({ error: checked.error }, 400)
   const store = getStore()
   const e = checked.value
+  if (e.action === 'create_test') {
+    const out = await store.withLock('offers', async () => {
+      const offers = (await getJson<Offer[]>(store, 'offers')) ?? []
+      if (openTestOffers(offers) >= TEST_OFFER_CAP) return { error: `There are already ${TEST_OFFER_CAP} unanswered test offers. Answer or dismiss one first.` }
+      const made = makeTestOffer(new Date().toISOString())
+      await store.set('offers', [...offers, made])
+      return { offer: made }
+    })
+    return 'error' in out ? json({ error: out.error }, 409) : json({ ok: true, offer: out.offer })
+  }
   if (e.action === 'reply_ok' || e.action === 'fulfil_retry') {
     const d = fulfilDeps(store)
     if (e.action === 'reply_ok') {
@@ -44,12 +55,12 @@ export async function PUT(req: Request) {
         })()
     return r.ok ? json({ ok: true, offer: r.offer }) : json({ error: r.error }, 409)
   }
-  const clients = checked.value.action === 'price' ? await loadClients() : []
+  const clients = e.action === 'price' ? await loadClients() : []
   const out = await store.withLock('offers', async () => {
     const offers = (await getJson<Offer[]>(store, 'offers')) ?? []
-    const i = offers.findIndex((o) => o.id === checked.value.id)
+    const i = offers.findIndex((o) => o.id === e.id)
     if (i < 0) return { error: 'That offer no longer exists', status: 404 }
-    const next = applyEdit(offers[i], checked.value, new Date().toISOString(), clients)
+    const next = applyEdit(offers[i], e, new Date().toISOString(), clients)
     if ('error' in next) return { error: next.error, status: 409 }
     offers[i] = next
     await store.set('offers', offers)

@@ -216,6 +216,8 @@ unreadable, check failed (the store did not answer: nothing was disconnected) or
 Real clients stay switched off until the order and invoice steps exist (`OFFERS_ALLOW_REAL_SEND`
 unset): until then offers go to the test client only.
 
+**Try it without a real email:** on the Offers page, **New test offer** makes a clearly marked sample offer (subject "[TEST] Sample offer, not from Mobile One", a TEST badge, a banner). It is reviewed but unpriced. It can only be priced for and sent to a test client: the pricing and the send step both refuse any other client, whatever the screen shows. Up to 3 unanswered test offers at a time; "Not an offer" dismisses one.
+
 ### Offers phase 4: after a client accepts
 
 When a client accepts, Quay Pilot does three things (and tells you on Telegram):

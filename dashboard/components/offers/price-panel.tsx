@@ -59,7 +59,7 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
         <span className="mb-1 block font-medium text-ink-2">Client (one per offer)</span>
         <select value={clientId} onChange={(e) => { setClientId(e.target.value); setMargin(''); setOver({}); setAck(false) }} className="h-9 w-full max-w-sm rounded-md border border-line bg-surface px-2 text-[13px]">
           <option value="">Choose a client…</option>
-          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}{c.test ? ' (test)' : ''}</option>)}
+          {(offer.testOnly ? clients.filter((c) => c.test) : clients).map((c) => <option key={c.id} value={c.id}>{c.name}{c.test ? ' (test)' : ''}</option>)}
         </select>
       </label>
 

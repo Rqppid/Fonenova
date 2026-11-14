@@ -63,6 +63,7 @@ export async function sendOffer(id: string, d: SendDeps): Promise<Result> {
     if (!o.pricing) return { error: 'Price the offer for a client first.' }
     const client = clients.find((c) => c.id === o.pricing!.clientId)
     if (!client) return { error: 'The client this offer is priced for no longer exists.' }
+    if (o.testOnly && !client.test) return { error: 'This is a test offer: it can only be sent to a test client.' }
     if (!client.test && !d.allowReal) return { error: 'Offers to real clients are switched on with the next phase (order and invoice). For now, price it for the test client and send it to yourself.' }
     if (!client.offerEmails.length) return { error: client.test ? 'Add your own email address to the test client first (Offers, Clients).' : `${client.name} has no offer email address (Offers, Clients).` }
     const r = priceOffer(o.lines, client, { clientId: client.id, marginCents: o.pricing.marginCents, overrides: o.pricing.overrides, ackLow: o.pricing.ackLow })

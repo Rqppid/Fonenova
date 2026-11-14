@@ -104,6 +104,8 @@ export interface Offer {
   pricing?: OfferPricing
   /** Every time it was sent to a client, newest last. */
   sends?: OfferSend[]
+  /** Made by hand for testing: it can only be priced for and sent to a test client. */
+  testOnly?: boolean
   /** Set when a client accepts; absent on offers accepted before this existed. */
   fulfilment?: Fulfilment
   createdAt: string
