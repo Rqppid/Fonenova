@@ -118,12 +118,12 @@ async function accessToken(c: GmailConfig, store: Store): Promise<Tokens> {
 }
 
 /** RFC 2822 message with a plain-text and an HTML part. Headers are UTF-8 encoded. */
-export function mimeMessage(m: { from: string; to: string; subject: string; text: string; html: string }): string {
+export function mimeMessage(m: { from: string; to: string; subject: string; text: string; html: string; fromName?: string }): string {
   const boundary = `qp_${crypto.randomBytes(9).toString('hex')}`
   const enc = (s: string) => `=?UTF-8?B?${Buffer.from(s).toString('base64')}?=`
   const part = (type: string, body: string) => [`--${boundary}`, `Content-Type: ${type}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '', Buffer.from(body).toString('base64').replace(/(.{76})/g, '$1\r\n')].join('\r\n')
   return [
-    `From: ${enc('QuayPilot')} <${m.from}>`,
+    `From: ${enc(m.fromName ?? 'QuayPilot')} <${m.from}>`,
     `To: ${m.to}`,
     `Subject: ${enc(m.subject)}`,
     'MIME-Version: 1.0',
@@ -136,10 +136,10 @@ export function mimeMessage(m: { from: string; to: string; subject: string; text
   ].join('\r\n')
 }
 
-export async function sendGmail(c: GmailConfig, msg: { subject: string; text: string; html: string; to?: string }, store: Store = getStore()): Promise<{ id: string; to: string; from: string }> {
+export async function sendGmail(c: GmailConfig, msg: { subject: string; text: string; html: string; to?: string; fromName?: string }, store: Store = getStore()): Promise<{ id: string; to: string; from: string }> {
   const t = await accessToken(c, store)
   const to = msg.to ?? c.to
-  const raw = Buffer.from(mimeMessage({ from: t.email, to, subject: msg.subject, text: msg.text, html: msg.html })).toString('base64url')
+  const raw = Buffer.from(mimeMessage({ from: t.email, to, subject: msg.subject, text: msg.text, html: msg.html, ...(msg.fromName ? { fromName: msg.fromName } : {}) })).toString('base64url')
   const res = await fetch(`${GMAIL()}/users/me/messages/send`, {
     method: 'POST',
     headers: { authorization: `Bearer ${t.accessToken}`, 'content-type': 'application/json' },

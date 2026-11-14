@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, Inbox, Plus, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { PricePanel } from '@/components/offers/price-panel'
+import { SendPanel, type SendSetup } from '@/components/offers/send-panel'
 import type { Client } from '@/lib/offers/clients'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
@@ -17,6 +18,10 @@ const STATUS: Record<OfferStatus, { label: string; tone: 'warn' | 'gain' | 'neut
   needs_review: { label: 'Needs review', tone: 'warn' },
   ready: { label: 'Reviewed', tone: 'gain' },
   dismissed: { label: 'Not an offer', tone: 'neutral' },
+  sent: { label: 'Sent', tone: 'warn' },
+  accepted: { label: 'Accepted', tone: 'gain' },
+  declined: { label: 'Declined', tone: 'neutral' },
+  expired: { label: 'Expired', tone: 'neutral' },
 }
 
 interface Setup {
@@ -25,7 +30,7 @@ interface Setup {
   schedule: boolean
 }
 
-export function OffersView({ offers, status, setup, selected, clients }: { offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null; clients: Client[] }) {
+export function OffersView({ offers, status, setup, selected, clients, send }: { offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null; clients: Client[]; send: SendSetup }) {
   const [openId, setOpenId] = useState<string | null>(selected ?? offers.find((o) => o.status === 'needs_review')?.id ?? null)
   const [showDismissed, setShowDismissed] = useState(false)
   const list = offers.filter((o) => showDismissed || o.status !== 'dismissed')
@@ -67,7 +72,7 @@ export function OffersView({ offers, status, setup, selected, clients }: { offer
             })}
           </ul>
         </section>
-        {open ? <OfferDetail key={open.id + open.updatedAt} offer={open} clients={clients} /> : <section className="rounded-lg border border-line bg-surface px-5 py-10 text-center text-[13.5px] text-ink-2">Choose an offer to review it.</section>}
+        {open ? <OfferDetail key={open.id + open.updatedAt} offer={open} clients={clients} send={send} /> : <section className="rounded-lg border border-line bg-surface px-5 py-10 text-center text-[13.5px] text-ink-2">Choose an offer to review it.</section>}
       </div>
     </div>
   )
@@ -101,7 +106,7 @@ const fromDraft = (d: Draft): OfferLine | null => {
   return { id: d.id, model: d.model.trim(), storage: d.storage.trim() || null, grade: d.grade.trim() || null, qty, unitCostCents: cost, sourceText: d.sourceText, note: d.note }
 }
 
-export function OfferDetail({ offer, clients = [] }: { offer: Offer; clients?: Client[] }) {
+export function OfferDetail({ offer, clients = [], send = { allowReal: false, publicStore: false, gmail: false } }: { offer: Offer; clients?: Client[]; send?: SendSetup }) {
   const router = useRouter()
   const [rows, setRows] = useState<Draft[]>(() => offer.lines.map(toDraft))
   const [busy, setBusy] = useState(false)
@@ -111,7 +116,8 @@ export function OfferDetail({ offer, clients = [] }: { offer: Offer; clients?: C
   const lines = parsed.filter((l): l is OfferLine => !!l)
   const flags = offerFlags(lines)
   const dirty = JSON.stringify(lines.map(({ sourceText: _s, ...l }) => l)) !== JSON.stringify(offer.lines.map(({ sourceText: _s, ...l }) => l))
-  const editable = offer.status !== 'dismissed'
+  // Lines and prices can only change before the offer goes to a client.
+  const editable = offer.status === 'needs_review' || offer.status === 'ready'
 
   async function put(body: object) {
     setBusy(true)
@@ -170,11 +176,11 @@ export function OfferDetail({ offer, clients = [] }: { offer: Offer; clients?: C
         {editable && <Button size="sm" variant="primary" disabled={busy || !dirty || !valid} onClick={() => put({ action: 'save', id: offer.id, lines })}>{busy ? 'Saving…' : 'Save changes'}</Button>}
         {offer.status === 'needs_review' && <Button size="sm" variant={dirty ? 'outline' : 'primary'} disabled={busy || dirty || !lines.length} title={dirty ? 'Save your changes first' : undefined} onClick={() => put({ action: 'status', id: offer.id, status: 'ready' })}>Mark reviewed</Button>}
         {offer.status === 'ready' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Back to review</Button>}
-        {offer.status !== 'dismissed'
-          ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>
-          : <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Restore</Button>}
+        {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>}
+        {offer.status === 'dismissed' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Restore</Button>}
       </div>
       {offer.status === 'ready' && <PricePanel key={offer.updatedAt} offer={offer} clients={clients} />}
+      {(offer.status === 'ready' || offer.status === 'sent' || offer.status === 'accepted' || offer.status === 'declined' || offer.status === 'expired') && <SendPanel key={`${offer.updatedAt}-send`} offer={offer} clients={clients} setup={send} />}
 
       <details className="rounded-md border border-line">
         <summary className="cursor-pointer px-3 py-2 text-[13px] font-medium text-ink-2">The email as received</summary>
