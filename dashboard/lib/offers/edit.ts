@@ -15,6 +15,7 @@ export type OfferEdit =
   | { action: 'send'; id: string }
   | { action: 'withdraw'; id: string }
   | { action: 'unlock'; id: string }
+  | { action: 'create_test' }
   | { action: 'reply_ok'; id: string }
   | { action: 'fulfil_retry'; id: string }
 
@@ -26,6 +27,7 @@ const optStr = (v: unknown, max: number): string | null | undefined => (v === nu
 export function checkEdit(body: unknown): Checked<OfferEdit> {
   if (!body || typeof body !== 'object') return { ok: false, error: 'Expected a JSON body' }
   const b = body as Record<string, unknown>
+  if (b.action === 'create_test') return { ok: true, value: { action: 'create_test' } }
   const id = str(b.id, 80)
   if (!id || !/^of_[A-Za-z0-9_-]+$/.test(id)) return { ok: false, error: 'Unknown offer' }
   if (b.action === 'status') {
@@ -48,7 +50,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     }
     return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true } } }
   }
-  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok or fulfil_retry' }
+  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry or create_test' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
   const lines: OfferLine[] = []
   for (const [i, raw] of (b.lines as unknown[]).entries()) {
@@ -79,7 +81,7 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
   if (o.status === 'sent' || o.status === 'accepted' || o.status === 'declined' || o.status === 'expired') {
     return { error: o.status === 'sent' ? 'This offer has been sent. Withdraw it to change it.' : o.status === 'accepted' ? 'This offer was accepted, so it can no longer be changed.' : 'This offer was answered or expired. Unlock it to reprice it.' }
   }
-  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry') return { error: 'That action is handled separately' }
+  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test') return { error: 'That action is handled separately' }
   if (e.action === 'unprice') {
     if (!o.pricing) return { error: 'This offer is not priced' }
     const { pricing: _p, ...rest } = o
@@ -89,6 +91,7 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
     if (o.status !== 'ready') return { error: 'Mark the offer reviewed before pricing it' }
     const client = clients.find((c) => c.id === e.input.clientId)
     if (!client) return { error: 'That client no longer exists' }
+    if (o.testOnly && !client.test) return { error: 'This is a test offer: it can only be priced for a test client.' }
     const r = priceOffer(o.lines, client, e.input)
     if (!r.ok) return { error: r.errors[0] ?? (r.needsAck ? `Tick the box to confirm the ${r.lowCount} line${r.lowCount === 1 ? '' : 's'} under the minimum margin` : 'This offer cannot be priced yet') }
     const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

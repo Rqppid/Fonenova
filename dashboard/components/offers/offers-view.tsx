@@ -33,6 +33,20 @@ interface Setup {
 export function OffersView({ offers, status, setup, selected, clients, send }: { offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null; clients: Client[]; send: SendSetup }) {
   const [openId, setOpenId] = useState<string | null>(selected ?? offers.find((o) => o.status === 'needs_review')?.id ?? null)
   const [showDismissed, setShowDismissed] = useState(false)
+  const router = useRouter()
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  async function createTest() {
+    setCreating(true)
+    setCreateError(null)
+    const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'create_test' }) }).catch(() => null)
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string; offer?: Offer } | null
+    setCreating(false)
+    if (res?.ok && out?.ok && out.offer) {
+      setOpenId(out.offer.id)
+      router.refresh()
+    } else setCreateError(out?.error ?? 'Could not create it. Check your connection and try again.')
+  }
   const list = offers.filter((o) => showDismissed || o.status !== 'dismissed')
   const open = offers.find((o) => o.id === openId) ?? null
   const waiting = offers.filter((o) => o.status === 'needs_review').length
@@ -44,6 +58,11 @@ export function OffersView({ offers, status, setup, selected, clients, send }: {
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <h2 id="offers-list" className="text-[15px] font-semibold text-ink">Offers <span className="ml-1 font-normal text-ink-2">{waiting ? `${waiting} to review` : 'all reviewed'}</span></h2>
             <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2"><input type="checkbox" checked={showDismissed} onChange={(e) => setShowDismissed(e.target.checked)} />Show not offers</label>
+          </div>
+          <div className="border-b border-line px-4 py-2" data-testid="new-test-offer">
+            <Button size="sm" variant="outline" disabled={creating} onClick={createTest}>{creating ? 'Creating…' : 'New test offer'}</Button>
+            <p className="mt-1 text-[12px] text-ink-3">A made-up offer for the test client, to try pricing, sending, accepting and the Xero draft without a real email.</p>
+            {createError && <p role="alert" className="mt-1 text-[12.5px] text-loss">{createError}</p>}
           </div>
           {list.length === 0 && (
             <div className="px-4 py-8 text-center text-[13px] text-ink-2">
@@ -58,7 +77,7 @@ export function OffersView({ offers, status, setup, selected, clients, send }: {
                 <li key={o.id}>
                   <button type="button" onClick={() => setOpenId(o.id)} className={cn('w-full px-4 py-3 text-left hover:bg-subtle', o.id === openId && 'bg-subtle')} data-testid="offer-item">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13.5px] font-medium text-ink">{o.source.subject || '(no subject)'}</span>
+                      <span className="truncate text-[13.5px] font-medium text-ink">{o.testOnly && <span className="mr-1.5 rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-semibold text-warn" data-testid="test-badge">TEST</span>}{o.source.subject || '(no subject)'}</span>
                       <Badge tone={STATUS[o.status].tone}>{STATUS[o.status].label}</Badge>
                     </div>
                     <div className="mt-0.5 text-[12.5px] text-ink-2">
@@ -139,6 +158,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         </div>
         <Badge tone={STATUS[offer.status].tone}>{STATUS[offer.status].label}</Badge>
       </div>
+      {offer.testOnly && <p className="rounded-md border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] text-warn" data-testid="test-banner">TEST OFFER. Made here for testing, not from Mobile One. It can only be priced for and sent to the test client, never a real client.</p>}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[600px] text-[13px]">
