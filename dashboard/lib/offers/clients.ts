@@ -15,6 +15,10 @@ export interface Client {
   invoiceEmails: string[]
   margin: MarginRule
   terms: Terms
+  /** The owner chose the payment terms on purpose. Required before a client can stop being a test client; the shipped default is only a placeholder. */
+  termsConfirmed?: boolean
+  /** Client shipping = Mobile One's shipping x this. Default 2; editable per client. */
+  shippingMultiplier?: number
   /** Skip the manual approval step. Always false until the approve step exists. */
   autoApprove: false
   folder: Folder
@@ -37,9 +41,9 @@ export const ruleText = (c: Client) =>
 /** The first list: Wave and EU Telecoms as agreed, plus an empty test client to fill in. */
 export function seedClients(): Client[] {
   return [
-    { id: 'c_wave', name: 'Wave Phone B.V.', xeroContactId: '1597cc5c-fbed-4817-a4e1-53149bb46d77', offerEmails: ['info@wavephone.nl'], invoiceEmails: ['info@wavephone.nl'], margin: { type: 'manual' }, terms: { days: 30 }, autoApprove: false, folder: 'wave', test: false },
-    { id: 'c_eutelecoms', name: 'EU Telecoms BL EOOD', xeroContactId: 'a7401e62-a54e-495e-98cd-85f3c6c027b8', offerEmails: ['contact@eutelecoms.com'], invoiceEmails: ['contact@eutelecoms.com'], margin: { type: 'fixed', perUnitCents: 400, locked: true }, terms: { days: 30 }, autoApprove: false, folder: 'telecom', test: false },
-    { id: 'c_test', name: 'Test client (my own inbox)', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, autoApprove: false, folder: 'other', test: true },
+    { id: 'c_wave', name: 'Wave Phone B.V.', xeroContactId: '1597cc5c-fbed-4817-a4e1-53149bb46d77', offerEmails: ['info@wavephone.nl'], invoiceEmails: ['info@wavephone.nl'], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'wave', test: false },
+    { id: 'c_eutelecoms', name: 'EU Telecoms BL EOOD', xeroContactId: 'a7401e62-a54e-495e-98cd-85f3c6c027b8', offerEmails: ['contact@eutelecoms.com'], invoiceEmails: ['contact@eutelecoms.com'], margin: { type: 'fixed', perUnitCents: 400, locked: true }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'telecom', test: false },
+    { id: 'c_test', name: 'Test client (my own inbox)', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'other', test: true },
   ]
 }
 
@@ -60,7 +64,15 @@ function emails(v: unknown, label: string, who: string): Checked<string[]> {
   return { ok: true, value: out }
 }
 
-export function checkClients(body: unknown): Checked<Client[]> {
+export const DEFAULT_SHIPPING_MULTIPLIER = 2
+export const multiplierOf = (c: Pick<Client, 'shippingMultiplier'>) => c.shippingMultiplier ?? DEFAULT_SHIPPING_MULTIPLIER
+
+/**
+ * `previous` is the saved list: a client that is new, or that was a test client, must have its payment
+ * terms confirmed before it can be saved as a real one. A real client that is already saved is not
+ * held up by this when something else is edited.
+ */
+export function checkClients(body: unknown, previous: readonly Client[] = []): Checked<Client[]> {
   if (!Array.isArray(body) || body.length > 50) return { ok: false, error: 'Expected a list of up to 50 clients' }
   const out: Client[] = []
   for (const raw of body) {
@@ -89,9 +101,14 @@ export function checkClients(body: unknown): Checked<Client[]> {
     if (t === 'upfront') terms = 'upfront'
     else if (t && typeof t === 'object' && typeof (t as { days?: unknown }).days === 'number' && Number.isSafeInteger((t as { days: number }).days) && (t as { days: number }).days >= 0 && (t as { days: number }).days <= 180) terms = { days: (t as { days: number }).days }
     else return { ok: false, error: `${who}: payment terms are a number of days (0 to 180) or upfront` }
+    const mult = b.shippingMultiplier === undefined || b.shippingMultiplier === null || b.shippingMultiplier === '' ? DEFAULT_SHIPPING_MULTIPLIER : b.shippingMultiplier
+    if (typeof mult !== 'number' || !Number.isFinite(mult) || mult < 0.5 || mult > 10 || Math.round(mult * 100) !== mult * 100) return { ok: false, error: `${who}: the shipping multiplier must be between 0.5 and 10 (for example 2)` }
+    const termsConfirmed = b.termsConfirmed === true
+    const was = previous.find((c) => c.id === id)
+    if (b.test !== true && !termsConfirmed && (!was || was.test)) return { ok: false, error: `${who}: choose the payment terms (for example 7 or 14 days) before this client can be a real client` }
     if (b.autoApprove === true) return { ok: false, error: `${who}: auto-approve arrives with the approve step; it stays off for now` }
     if (b.folder !== 'wave' && b.folder !== 'telecom' && b.folder !== 'other') return { ok: false, error: `${who}: choose a folder` }
-    out.push({ id, name, xeroContactId: contact, offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, autoApprove: false, folder: b.folder, test: b.test === true })
+    out.push({ id, name, xeroContactId: contact, offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, folder: b.folder, test: b.test === true })
   }
   return { ok: true, value: out }
 }

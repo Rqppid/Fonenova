@@ -196,6 +196,16 @@ describe('the offer page', () => {
     for (const t of ['Offer for Wave Phone B.V.', 'iPhone 14 128GB AP Grade A+', '€255.87', '€51,174.00', '€625.67', '€824,575.00'.replace('824,575.00', '82,457.50'), 'Accept offer', 'Decline', 'Subject to availability', 'UK time']) expect(html, t).toContain(t)
   })
 
+  it('shows the shipping as its own row, inside the total the client accepts, and nothing extra on an older offer', async () => {
+    await put(TOKEN, offer({ shippingCents: 24_000, totalCents: 82_457_50 + 24_000 }))
+    const html = await page(TOKEN)
+    expect(html).toContain('Shipping')
+    expect(html).toContain('€240.00')
+    expect(html).toContain('€82,697.50')
+    await put(TOKEN, offer())
+    expect(await page(TOKEN)).not.toContain('Shipping')
+  })
+
   it('never contains cost, margin or profit, and never a payment-terms promise', async () => {
     await put(TOKEN, offer())
     const html = (await page(TOKEN)).toLowerCase()

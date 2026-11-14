@@ -59,7 +59,7 @@ const COST_FIGURES = ['24887', '36263', '61767', '248.87', '362.63', '617.67']
 const clients = (): Client[] => seedClients().map((c) => (c.id === 'c_test' ? { ...c, offerEmails: ['buyer@example.test'] } : c.id === 'c_wave' ? { ...c, offerEmails: ['wave@example.test'] } : c))
 const offer = (p: Partial<Offer> = {}): Offer => ({
   id: 'of_n12', status: 'ready', source: { gmailMessageId: 'n12', threadId: 't', rfcMessageId: null, from: 'Mobile One <supplier@example.test>', to: 'owner@example.test', subject: 'Offer', receivedAt: '2026-11-12T10:29:42Z' },
-  text: '', lines: nov12, pricing: { clientId: 'c_test', marginCents: 700, overrides: { c3c3c3: 800 }, ackLow: false, pricedAt: '2026-11-13T12:00:00Z' }, createdAt: '', updatedAt: '', audit: [], ...p,
+  text: '', lines: nov12, shipping: { mobileOneCents: 0, source: 'none', sourceText: null }, pricing: { clientId: 'c_test', marginCents: 700, overrides: { c3c3c3: 800 }, ackLow: false, pricedAt: '2026-11-13T12:00:00Z' }, createdAt: '', updatedAt: '', audit: [], ...p,
 })
 
 beforeEach(async () => {
@@ -89,12 +89,12 @@ afterEach(() => {
 const store = async () => (await import('@/lib/store')).getStore()
 const seed = async (o: Offer = offer()) => (await store()).set('offers', [o])
 const stored = async () => (await (await import('@/lib/store')).getJson<Offer[]>(await store(), 'offers'))![0]
-const send = async (o: Offer = offer(), p: { allowReal?: boolean; now?: Date; token?: () => string } = {}) => {
+const send = async (o: Offer = offer(), p: { allowReal?: boolean; liveXeroReady?: boolean; now?: Date; token?: () => string } = {}) => {
   await seed(o)
   const { sendOffer } = await import('@/lib/offers/send')
   const { sendGmail, gmailConfig } = await import('@/lib/gmail')
   const s = await store()
-  return sendOffer(o.id, { store: s, allowReal: p.allowReal ?? false, now: p.now, token: p.token, mail: (m) => sendGmail(gmailConfig()!, { ...m, fromName: 'FoneNova' }, s) })
+  return sendOffer(o.id, { store: s, allowReal: p.allowReal ?? false, liveXeroReady: p.liveXeroReady ?? false, now: p.now, token: p.token, mail: (m) => sendGmail(gmailConfig()!, { ...m, fromName: 'FoneNova' }, s) })
 }
 /** Both parts of the one email that was sent, decoded. */
 const decode = (raw: string) => {
@@ -166,7 +166,13 @@ describe('sending an offer', () => {
     expect(mails).toHaveLength(0)
     expect(pub.size).toBe(0)
     expect((await stored()).status).toBe('ready')
-    expect((await send(wave, { allowReal: true })).ok).toBe(true)
+    // Two separate steps: neither one alone is enough, and each says which one is missing.
+    const onlyReal = await send(wave, { allowReal: true })
+    expect(onlyReal).toMatchObject({ ok: false, error: expect.stringContaining('live Xero') })
+    const onlyXero = await send(wave, { liveXeroReady: true })
+    expect(onlyXero).toMatchObject({ ok: false, error: expect.stringContaining('OFFERS_ALLOW_REAL_SEND') })
+    expect(mails).toHaveLength(0)
+    expect((await send(wave, { allowReal: true, liveXeroReady: true })).ok).toBe(true)
     expect(decode(mails[0]).headers).toContain('To: wave@example.test')
     expect(decode(mails[0]).text).not.toContain('[TEST]')
   })
@@ -434,8 +440,9 @@ describe('the Send panel', () => {
   it('explains why it cannot send: real client, no store, no Gmail, no address', async () => {
     const { SendPanel } = await import('@/components/offers/send-panel')
     const wave = offer({ pricing: { clientId: 'c_wave', marginCents: 700, overrides: {}, ackLow: false, pricedAt: '' } })
-    expect(render(h(SendPanel, { offer: wave, clients: clients(), setup }))).toContain('real clients are switched on with the next phase')
-    expect(render(h(SendPanel, { offer: wave, clients: clients(), setup: { ...setup, allowReal: true } }))).not.toContain('send-blocked')
+    expect(render(h(SendPanel, { offer: wave, clients: clients(), setup }))).toContain('live Xero organisation connected')
+    expect(render(h(SendPanel, { offer: wave, clients: clients(), setup: { ...setup, liveXeroReady: true } }))).toContain('OFFERS_ALLOW_REAL_SEND')
+    expect(render(h(SendPanel, { offer: wave, clients: clients(), setup: { ...setup, allowReal: true, liveXeroReady: true } }))).not.toContain('send-blocked')
     expect(render(h(SendPanel, { offer: offer(), clients: clients(), setup: { ...setup, storeProblem: 'The public offers store is not set up yet (OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel).' } }))).toContain('public offers store is not set up')
     expect(render(h(SendPanel, { offer: offer(), clients: clients(), setup: { ...setup, gmailProblem: 'Gmail is not connected. Press Connect Gmail (Settings, Gmail) and sign in as info@fonenova.com.' } }))).toContain('Gmail is not connected')
     expect(render(h(SendPanel, { offer: offer(), clients: seedClients(), setup }))).toContain('Add your own email address')

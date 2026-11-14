@@ -17,6 +17,7 @@ export function fulfilDeps(store: Store, over: Partial<Pick<FulfilDeps, 'notify'
     notify: over.notify ?? notify,
     dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''),
     allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
+    allowLiveXero: process.env.XERO_WRITE_ALLOW_LIVE === 'true',
     ownerAddress: g?.to ?? 'info@fonenova.com',
     knownOrderIds: async () => {
       const ledger = await getJson<Ledger>(store, 'ledger')

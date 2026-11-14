@@ -73,6 +73,7 @@ function testOffer(): Offer {
     id: 'of_t1', status: 'accepted',
     source: { gmailMessageId: 'm1', threadId: 't1', rfcMessageId: null, from: 'TEST <t@example.invalid>', to: 'info@fonenova.com', subject: '[TEST]', receivedAt: HOURS(5) },
     text: '', lines: [{ id: 'l1', model: 'iPhone 16', storage: '128GB', grade: 'A', qty: 10, unitCostCents: 45_000, sourceText: 'x', note: null }],
+    shipping: { mobileOneCents: 0, source: 'none', sourceText: null },
     pricing: { clientId: 'c_test', marginCents: 700, overrides: {}, ackLow: false, pricedAt: HOURS(3) },
     sends: [send], testOnly: true, createdAt: HOURS(6), updatedAt: HOURS(1), audit: [],
   }

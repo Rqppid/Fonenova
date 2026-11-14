@@ -138,7 +138,7 @@ const NOW = new Date('2026-11-15T10:00:00Z')
 const HOURS = (n: number) => new Date(NOW.getTime() - n * 3_600_000).toISOString()
 function testOffer(): Offer {
   const send: OfferSend = { clientId: 'c_test', clientName: 'Test client', to: ['x@example.test'], tokenHash: 'a'.repeat(64), tokenHint: 'abcdef', sentAt: HOURS(2), expiresAt: HOURS(-20), totalCents: 457_000, units: 10, test: true, gmailMessageId: 'g1', outcome: 'accepted', answer: { decision: 'accept', remarks: '', at: HOURS(1), ip: '1.1.1.1', ua: 'x' }, resolvedAt: HOURS(1) }
-  return { id: 'of_t1', status: 'accepted', source: { gmailMessageId: 'm1', threadId: 't1', rfcMessageId: null, from: 'TEST <t@example.invalid>', to: 'info@fonenova.com', subject: '[TEST]', receivedAt: HOURS(5) }, text: '', lines: [{ id: 'l1', model: 'iPhone 16', storage: '128GB', grade: 'A', qty: 10, unitCostCents: 45_000, sourceText: 'x', note: null }], pricing: { clientId: 'c_test', marginCents: 700, overrides: {}, ackLow: false, pricedAt: HOURS(3) }, sends: [send], testOnly: true, createdAt: HOURS(6), updatedAt: HOURS(1), audit: [] }
+  return { id: 'of_t1', status: 'accepted', source: { gmailMessageId: 'm1', threadId: 't1', rfcMessageId: null, from: 'TEST <t@example.invalid>', to: 'info@fonenova.com', subject: '[TEST]', receivedAt: HOURS(5) }, text: '', lines: [{ id: 'l1', model: 'iPhone 16', storage: '128GB', grade: 'A', qty: 10, unitCostCents: 45_000, sourceText: 'x', note: null }], shipping: { mobileOneCents: 0, source: 'none', sourceText: null }, pricing: { clientId: 'c_test', marginCents: 700, overrides: {}, ackLow: false, pricedAt: HOURS(3) }, sends: [send], testOnly: true, createdAt: HOURS(6), updatedAt: HOURS(1), audit: [] }
 }
 
 /** A fake Xero that, like some APIs, answers a repeated idempotency key with the stored result of the first use. */
@@ -226,7 +226,7 @@ describe('retrying after a refusal uses a fresh idempotency key', () => {
       async findByReference() { return null },
       async createDraft(b, key) { keys.push(key); if (b.InvoiceNumber === '2026048') throw new DuplicateInvoiceNumber(); created.push(b.InvoiceNumber); return { id: 'i', number: b.InvoiceNumber, status: 'DRAFT' } },
     }
-    const r = await raiseDraft({ api, store: mutexStore(), reference: 'FN-ORD-016', client: { ...seedClients()[0] }, test: false, lines: [{ description: 'x', qty: 1, unitSaleCents: 100 }], settings: DEFAULT_DRAFT_SETTINGS, now: NOW })
+    const r = await raiseDraft({ api, store: mutexStore(), reference: 'FN-ORD-016', client: { ...seedClients()[0] }, test: false, lines: [{ description: 'x', qty: 1, unitSaleCents: 100 }], settings: DEFAULT_DRAFT_SETTINGS, now: NOW, allowLive: true })
     expect(r).toMatchObject({ ok: true, number: '2026049' })
     expect(keys).toEqual(['fn-draft-FN-ORD-016-n2026048', 'fn-draft-FN-ORD-016-n2026049'])
   })

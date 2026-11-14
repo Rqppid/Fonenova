@@ -19,7 +19,8 @@ const L = (id: string, model: string, storage: string, grade: string, qty: numbe
 
 /** The 12 Nov offer, as invoiced on 2026047 (plus shipping, which is not on offers). */
 const nov12 = [L('a1a1a1', 'iPhone 14', '128GB', 'AP Grade A+', 200, 248.87), L('b2b2b2', 'iPhone 15', '128GB', 'A GradeA+', 100, 362.63), L('c3c3c3', 'Samsung S25 Ultra', '256GB', 'Grade A+', 50, 617.67)]
-const input = (p: Partial<{ clientId: string; marginCents: number | null; overrides: Record<string, number>; ackLow: boolean }> = {}) => ({ clientId: 'c_wave', marginCents: null, overrides: {}, ackLow: false, ...p })
+// Shipping is covered on its own below; these tests are about the items, so the offer has none.
+const input = (p: Partial<{ clientId: string; marginCents: number | null; overrides: Record<string, number>; ackLow: boolean; shippingCents: number | null; mobileShipping: { cents: number | null; none: boolean } }> = {}) => ({ clientId: 'c_wave', marginCents: null, overrides: {}, ackLow: false, mobileShipping: { cents: 0, none: true }, ...p })
 
 describe('pricing an offer', () => {
   it('reproduces invoice 2026047 to the cent: +€7 on the iPhones, +€8 on the S25 Ultra', () => {
@@ -27,7 +28,7 @@ describe('pricing an offer', () => {
     expect(r.ok).toBe(true)
     expect(r.lines.map((l) => l.saleCents)).toEqual([255_87, 369_63, 625_67]) // the unit prices on the invoice
     expect(r.lines.map((l) => l.lineSaleCents)).toEqual([51_174_00, 36_963_00, 31_283_50])
-    expect(r.totals).toEqual({ units: 350, costCents: 116_920_50, saleCents: 119_420_50, profitCents: 2_500_00, profitPerUnitCents: 714 })
+    expect(r.totals).toEqual({ units: 350, costCents: 116_920_50, saleCents: 119_420_50, profitCents: 2_500_00, profitPerUnitCents: 714, shippingCents: 0, grandCents: 119_420_50, shippingProfitCents: 0 })
     expect(r.totals.saleCents + 640_00).toBe(120_060_50) // plus the €640 shipping line = the invoice total
     expect(r.lines.map((l) => l.overridden)).toEqual([false, false, true])
   })
@@ -92,7 +93,7 @@ describe('pricing an offer', () => {
 describe('clients', () => {
   it('the first-run list is valid and has Wave (manual), EU Telecoms (fixed €4.00, locked) and a test client', () => {
     const s = seedClients()
-    expect(checkClients(s)).toEqual({ ok: true, value: s })
+    expect(checkClients(s, s)).toEqual({ ok: true, value: s })
     expect(s.map((c) => c.name)).toEqual(['Wave Phone B.V.', 'EU Telecoms BL EOOD', 'Test client (my own inbox)'])
     expect(s[0].margin).toEqual({ type: 'manual' })
     expect(s[1].margin).toEqual({ type: 'fixed', perUnitCents: 400, locked: true })
@@ -102,7 +103,7 @@ describe('clients', () => {
   })
 
   it('checks every field and says which client is wrong', () => {
-    const c = (p: Partial<Client> | Record<string, unknown>) => checkClients([{ ...seedClients()[0], ...p }])
+    const c = (p: Partial<Client> | Record<string, unknown>) => checkClients([{ ...seedClients()[0], ...p }], seedClients())
     expect(c({ name: '' })).toMatchObject({ ok: false })
     expect(c({ offerEmails: ['not-an-email'] })).toMatchObject({ ok: false, error: expect.stringContaining('not a valid email') })
     expect(c({ invoiceEmails: ['a@b.test', 'x'] })).toMatchObject({ ok: false })
@@ -114,7 +115,7 @@ describe('clients', () => {
     expect(c({ terms: 'upfront' })).toMatchObject({ ok: true })
     expect(c({ folder: 'desktop' })).toMatchObject({ ok: false })
     expect(c({ autoApprove: true })).toMatchObject({ ok: false, error: expect.stringContaining('auto-approve') })
-    expect(checkClients([seedClients()[0], seedClients()[0]])).toMatchObject({ ok: false, error: expect.stringContaining('twice') })
+    expect(checkClients([seedClients()[0], seedClients()[0]], seedClients())).toMatchObject({ ok: false, error: expect.stringContaining('twice') })
     expect(checkClients('x')).toMatchObject({ ok: false })
   })
 })
@@ -134,7 +135,7 @@ describe('saving prices and clients', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  const offer = (p: Partial<Offer> = {}): Offer => ({ id: 'of_n12', status: 'ready', source: { gmailMessageId: 'n12', threadId: 't', rfcMessageId: null, from: 'Mobile One <supplier@example.test>', to: 'owner@example.test', subject: 'Offer', receivedAt: '2026-11-12T10:29:42Z' }, text: '', lines: nov12, createdAt: '', updatedAt: '', audit: [], ...p })
+  const offer = (p: Partial<Offer> = {}): Offer => ({ id: 'of_n12', status: 'ready', source: { gmailMessageId: 'n12', threadId: 't', rfcMessageId: null, from: 'Mobile One <supplier@example.test>', to: 'owner@example.test', subject: 'Offer', receivedAt: '2026-11-12T10:29:42Z' }, text: '', lines: nov12, shipping: { mobileOneCents: 0, source: 'none', sourceText: null }, createdAt: '', updatedAt: '', audit: [], ...p })
   const put = async (url: string, body: unknown, origin = 'https://dashboard.example.test') => {
     const route = url.endsWith('clients') ? await import('@/app/api/offers/clients/route') : await import('@/app/api/offers/route')
     return route.PUT(new Request(`https://dashboard.example.test${url}`, { method: 'PUT', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) }))
@@ -147,7 +148,7 @@ describe('saving prices and clients', () => {
     expect(r.status).toBe(200)
     const o = await stored()
     expect(o.pricing).toMatchObject({ clientId: 'c_wave', marginCents: 700, overrides: { c3c3c3: 800 }, ackLow: false })
-    expect(o.audit.at(-1)!.what).toBe('Priced for Wave Phone B.V.: sale €119,420.50, profit €2,500.00')
+    expect(o.audit.at(-1)!.what).toBe('Priced for Wave Phone B.V.: items €119,420.50 + shipping €0.00 = €119,420.50, profit €2,500.00')
     expect(JSON.stringify(o.pricing)).not.toContain('saleCents') // nothing the browser sends about prices is kept
   })
 
@@ -206,7 +207,7 @@ describe('saving prices and clients', () => {
 
 describe('the price panel and the clients screen', () => {
   const render = (el: Parameters<typeof renderToString>[0]) => renderToString(el).replace(/<!-- -->/g, '')
-  const base: Offer = { id: 'of_n12', status: 'ready', source: { gmailMessageId: 'n12', threadId: 't', rfcMessageId: null, from: 'Mobile One <supplier@example.test>', to: 'owner@example.test', subject: 'Offer', receivedAt: '2026-11-12T10:29:42Z' }, text: '', lines: nov12, createdAt: '', updatedAt: '', audit: [] }
+  const base: Offer = { id: 'of_n12', status: 'ready', source: { gmailMessageId: 'n12', threadId: 't', rfcMessageId: null, from: 'Mobile One <supplier@example.test>', to: 'owner@example.test', subject: 'Offer', receivedAt: '2026-11-12T10:29:42Z' }, text: '', lines: nov12, shipping: { mobileOneCents: 0, source: 'none', sourceText: null }, createdAt: '', updatedAt: '', audit: [] }
   const now = '2026-11-13T12:00:00Z'
 
   it('shows EU Telecoms at cost + €4.00 with sale, profit and totals per line', async () => {

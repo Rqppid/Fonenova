@@ -66,10 +66,11 @@ export async function ingestOffers(d: IngestDeps): Promise<IngestResult> {
         source: { gmailMessageId: m.id, threadId: m.threadId, rfcMessageId: m.rfcMessageId, from: m.from, to: m.to, subject: m.subject, receivedAt: m.receivedAt },
         text: text.slice(0, 4000),
         lines: parsed.lines,
+        ...(parsed.shipping ? { shipping: parsed.shipping } : {}),
         createdAt: now,
         updatedAt: now,
         audit: [
-          { at: now, what: `Read from email: ${parsed.lines.length} line${parsed.lines.length === 1 ? '' : 's'}` },
+          { at: now, what: `Read from email: ${parsed.lines.length} line${parsed.lines.length === 1 ? '' : 's'}, ${parsed.shipping ? `Mobile One shipping €${((parsed.shipping.mobileOneCents ?? 0) / 100).toFixed(2)}` : 'no shipping amount stated'}` },
           ...(answered ? [{ at: now, what: 'You already replied to this by email, so it was left out of review. Restore it to price it.' }] : []),
         ],
       })

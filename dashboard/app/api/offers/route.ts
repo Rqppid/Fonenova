@@ -1,6 +1,7 @@
 import { applyEdit, checkEdit } from '@/lib/offers/edit'
 import type { Offer } from '@/lib/offers/types'
 import { makeTestOffer, openTestOffers, TEST_OFFER_CAP } from '@/lib/offers/test-offer'
+import { liveXeroReady } from '@/lib/xero/live-gate'
 import { gmailConfig, gmailConnected, sendGmail } from '@/lib/gmail'
 import { loadClients } from '@/lib/offers/store'
 import { approveReply, fulfilOffer, retryFulfilment } from '@/lib/offers/fulfil'
@@ -51,7 +52,7 @@ export async function PUT(req: Request) {
           if (!c) return { ok: false as const, error: 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).' }
           const g = await gmailConnected(store)
           if (!g.connected) return { ok: false as const, error: g.message ?? 'Gmail is not connected (Settings, Gmail).' }
-          return sendOffer(e.id, { store, allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', mail: (m) => sendGmail(c, { ...m, fromName: 'FoneNova' }, store) })
+          return sendOffer(e.id, { store, allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', liveXeroReady: await liveXeroReady(store), mail: (m) => sendGmail(c, { ...m, fromName: 'FoneNova' }, store) })
         })()
     return r.ok ? json({ ok: true, offer: r.offer }) : json({ error: r.error }, 409)
   }

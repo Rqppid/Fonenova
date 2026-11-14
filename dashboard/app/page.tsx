@@ -65,7 +65,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   }
 
   const { ledger } = result
-  const xeroWrite = { ...(await xeroWriteStatus(getStore())), settings: await loadDraftSettings(getStore()) }
+  const xeroWrite = { ...(await xeroWriteStatus(getStore())), liveAllowed: process.env.XERO_WRITE_ALLOW_LIVE === 'true', settings: await loadDraftSettings(getStore()) }
   // Work waiting, for the sidebar. Recomputed on every load, so a decided row drops off at once.
   // Same view the dashboard shows: ledger plus Xero orders, with the live Xero checks.
   const merged = liveView(ledger, xero.snapshot, xero.pairs, todayIso())

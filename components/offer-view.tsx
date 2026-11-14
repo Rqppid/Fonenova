@@ -9,6 +9,8 @@ export interface OfferViewData {
   clientName: string
   lines: { description: string; qty: number; unitSaleCents: number }[]
   units: number
+  /** Shipping in cents, inside the total. 0 when there is none. */
+  shippingCents?: number
   totalCents: number
   expiresAt: string
   test: boolean
@@ -90,6 +92,7 @@ export function OfferView({ data }: { data: OfferViewData }) {
               ))}
             </tbody>
             <tfoot>
+              {data.shippingCents ? <tr data-testid="offer-shipping"><td className="px-4 py-2">Shipping</td><td /><td /><td className="px-4 py-2 text-right tabular-nums">{eur(data.shippingCents)}</td></tr> : null}
               <tr className="border-t border-border font-semibold"><td className="px-4 py-3">Total</td><td className="px-3 py-3 text-right tabular-nums">{data.units.toLocaleString("en-GB")}</td><td /><td className="px-4 py-3 text-right tabular-nums">{eur(data.totalCents)}</td></tr>
             </tfoot>
           </table>

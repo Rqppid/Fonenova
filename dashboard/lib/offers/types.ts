@@ -18,6 +18,17 @@ export interface OfferLine {
   note: string | null
 }
 
+/**
+ * Mobile One's shipping cost on an offer. It is never assumed: `email` was read from their email,
+ * `manual` was typed by the owner, `none` means the owner confirmed there is no shipping.
+ */
+export interface OfferShipping {
+  mobileOneCents: number | null
+  source: 'email' | 'manual' | 'none'
+  /** The line of the email it was read from, for the review screen. */
+  sourceText: string | null
+}
+
 /** How an offer is priced for one client. Sale prices come from this, never from the browser. */
 export interface OfferPricing {
   clientId: string
@@ -27,6 +38,8 @@ export interface OfferPricing {
   overrides: Record<string, number>
   /** Hamza ticked "I know N lines are under the minimum". */
   ackLow: boolean
+  /** What the client is charged for shipping (Mobile One's shipping x the client's multiplier unless changed), in cents. 0 when there is none. */
+  shippingCents?: number
   pricedAt: string
 }
 
@@ -42,6 +55,8 @@ export interface OfferSend {
   sentAt: string
   expiresAt: string
   totalCents: number
+  /** The shipping inside `totalCents`, in cents. */
+  shippingCents?: number
   units: number
   /** A test send to the owner's own inbox. */
   test: boolean
@@ -50,6 +65,8 @@ export interface OfferSend {
   outcome: 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn'
   answer?: { decision: 'accept' | 'decline'; remarks: string; at: string; ip: string; ua: string }
   resolvedAt?: string
+  /** The owner was emailed about this answer. Set before sending, so a retried webhook or the 5-minute check can never email twice. */
+  notifiedAt?: string
 }
 
 /**
@@ -102,6 +119,8 @@ export interface DraftStep {
   field?: string
   /** The request and Xero's raw answer for the last refusal. */
   debug?: DraftDebug
+  /** Things to check on the draft that did not stop it being created (a missing address, a recent invoice to the same contact). */
+  warnings?: string[]
   /** How many times Xero has definitely refused this draft. Each refusal moves the idempotency key on, so a fixed setting is never answered from a stored refusal. */
   rejections?: number
 }
@@ -137,6 +156,8 @@ export interface Offer {
   sends?: OfferSend[]
   /** Made by hand for testing: it can only be priced for and sent to a test client. */
   testOnly?: boolean
+  /** Mobile One's shipping cost; absent until read from the email or entered. */
+  shipping?: OfferShipping
   /** Set when a client accepts; absent on offers accepted before this existed. */
   fulfilment?: Fulfilment
   createdAt: string

@@ -7,8 +7,9 @@
 import { getJson, type Store } from '../store'
 import { ukTime } from '../format-uk'
 import { seedClients, type Client } from './clients'
-import { buildAnswerEmail, type AnswerOutcome, type NotifyEmail } from './notify-email'
-import { priceOffer, publicLines, type PublicLine } from './pricing'
+import { xeroDraftUrl } from './xero-url'
+import { buildAnswerEmail, type AnswerOutcome, type DraftInfo, type NotifyEmail } from './notify-email'
+import { priceOffer, pricingInputOf, publicLines, type PublicLine } from './pricing'
 import { getPublicAnswer, type PublicAnswer } from './public-store'
 import type { Offer, OfferSend } from './types'
 
@@ -42,18 +43,33 @@ async function update(store: Store, hash: string, fn: (o: Offer, s: OfferSend) =
   })
 }
 
-/** The items at the sale prices the client saw, worked out from the locked offer. Null if it cannot be. */
-export async function itemsFor(store: Store, o: Offer): Promise<PublicLine[] | null> {
+export interface Figures { lines: PublicLine[]; shippingCents: number; grandCents: number; itemsCents: number }
+
+/**
+ * What the client saw, worked out again from the locked offer: the items at their sale prices, the
+ * shipping, and the total. Null if it cannot be (`why` says why when asked).
+ */
+export async function figuresFor(store: Store, o: Offer): Promise<Figures | null> {
+  return (await figuresOrWhy(store, o)).figures
+}
+
+export async function figuresOrWhy(store: Store, o: Offer): Promise<{ figures: Figures | null; why: string | null }> {
   try {
-    if (!o.pricing) return null
+    if (!o.pricing) return { figures: null, why: 'The offer has no saved price.' }
     const clients = (await getJson<Client[]>(store, 'offers:clients')) ?? seedClients()
     const client = clients.find((c) => c.id === o.pricing!.clientId)
-    if (!client) return null
-    const r = priceOffer(o.lines, client, { clientId: client.id, marginCents: o.pricing.marginCents, overrides: o.pricing.overrides, ackLow: o.pricing.ackLow })
-    return r.ok ? publicLines(o.lines, r) : null
+    if (!client) return { figures: null, why: 'The client this offer was priced for no longer exists.' }
+    const r = priceOffer(o.lines, client, pricingInputOf(o))
+    if (!r.ok) return { figures: null, why: r.errors[0] ?? 'The offer could not be priced again from its saved settings.' }
+    return { figures: { lines: publicLines(o.lines, r), shippingCents: r.totals.shippingCents, grandCents: r.totals.grandCents, itemsCents: r.totals.saleCents }, why: null }
   } catch {
-    return null
+    return { figures: null, why: 'The offer could not be priced again from its saved settings.' }
   }
+}
+
+/** The items at the sale prices the client saw. Null if they cannot be worked out. */
+export async function itemsFor(store: Store, o: Offer): Promise<PublicLine[] | null> {
+  return (await figuresFor(store, o))?.lines ?? null
 }
 
 /**
@@ -63,11 +79,26 @@ export async function itemsFor(store: Store, o: Offer): Promise<PublicLine[] | n
 async function emailOwner(d: ResolveDeps, offer: Offer, send: OfferSend, outcome: AnswerOutcome): Promise<void> {
   if (!d.email) return
   try {
-    await d.email(buildAnswerEmail({ outcome, offer, send, lines: await itemsFor(d.store, offer), dashboardUrl: d.dashboardUrl }))
+    // Claim first: only the call that sets `notifiedAt` sends. A retried webhook, the 5-minute check
+    // and a second delivery all find it set and stop, so one answer is emailed once, never twice.
+    const claimedAt = (d.now ?? new Date()).toISOString()
+    const current = await update(d.store, send.tokenHash, (o, s) => (s.notifiedAt ? null : { ...o, sends: o.sends!.map((x) => (x.tokenHash === send.tokenHash ? { ...x, notifiedAt: claimedAt } : x)) }))
+    if (!current) return
+    const { figures } = await figuresOrWhy(d.store, current)
+    await d.email(buildAnswerEmail({ outcome, offer: current, send, lines: figures?.lines ?? null, ...(figures ? { shippingCents: figures.shippingCents } : {}), dashboardUrl: d.dashboardUrl, orderRef: current.fulfilment?.orderRef ?? null, draft: outcome === 'accepted' ? draftInfo(current) : null }))
   } catch {
     const at = (d.now ?? new Date()).toISOString()
     await update(d.store, send.tokenHash, (o) => ({ ...o, audit: log(o, at, 'Notification email to you was not sent (Telegram was)') })).catch(() => {})
   }
+}
+
+/** What the acceptance email says about the Xero draft: the link and checks, or why there is none yet. */
+function draftInfo(o: Offer): DraftInfo | null {
+  const dr = o.fulfilment?.draft
+  if (!dr) return null
+  if (dr.state === 'done') return { url: dr.invoiceId ? xeroDraftUrl(dr.invoiceId) : null, number: dr.invoiceNumber ?? null, org: dr.org ?? null, warnings: dr.warnings ?? [] }
+  if (dr.state === 'blocked' || dr.state === 'failed') return { note: dr.reason ?? 'It needs your attention (see the offer).' }
+  return { note: 'It is still being created; you will get a message when it is done.' }
 }
 
 const link = (d: ResolveDeps, o: Offer) => (d.dashboardUrl ? { label: 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
@@ -102,7 +133,7 @@ export async function applyAnswer(hash: string, d: ResolveDeps): Promise<{ chang
     ].join('\n'),
     link(d, offer),
   )
-  await emailOwner(d, offer, s, accepted ? 'accepted' : 'declined')
+  // An acceptance first starts the reply and the draft invoice, so the one email can carry the Xero link.
   if (accepted && d.fulfil) {
     try {
       await d.fulfil(offer.id)
@@ -110,6 +141,7 @@ export async function applyAnswer(hash: string, d: ResolveDeps): Promise<{ chang
       // The 5-minute check picks it up: the offer already says accepted.
     }
   }
+  await emailOwner(d, offer, s, accepted ? 'accepted' : 'declined')
   return { changed: true }
 }
 

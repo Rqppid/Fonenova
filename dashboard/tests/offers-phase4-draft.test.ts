@@ -73,7 +73,7 @@ describe('draft invoice body', () => {
 })
 
 describe('raiseDraft', () => {
-  const base = { reference: 'FN-ORD-016', client: wave, lines, settings: DEFAULT_DRAFT_SETTINGS, now: NOW }
+  const base = { reference: 'FN-ORD-016', client: wave, lines, settings: DEFAULT_DRAFT_SETTINGS, now: NOW, allowLive: true }
 
   it('creates the next numbered draft and remembers the number', async () => {
     const x = fakeXero({ numbers: ['2026047'] })
