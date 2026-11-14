@@ -19,7 +19,7 @@ import { COMPANY, CONTACT } from "@/lib/site"
  * if they change.
  */
 
-const LAST_UPDATED = "7 October 2026"
+const LAST_UPDATED = "14 November 2026"
 
 const DESCRIPTION = "How Fonenova Ltd collects, uses and protects personal data on this website."
 
@@ -111,6 +111,13 @@ export default function PrivacyPage() {
               button on this site is an ordinary link: nothing is shared with WhatsApp until you click it.
             </li>
             <li>
+              <Term>Offer links.</Term> If we send you an offer by email, its link opens a private page that shows the
+              offer and lets you accept or decline it. When you accept or decline, we record the time, your IP
+              address, your browser details and any remarks you type, so that we have a record of who agreed to what
+              and can protect the link from misuse. Each link can be answered once and expires, and these pages are
+              not listed by search engines.
+            </li>
+            <li>
               <Term>Technical data.</Term> Our website host, Vercel, processes technical data such as your IP address,
               browser type and the pages requested, to deliver the site and keep it secure.
             </li>
@@ -155,8 +162,10 @@ export default function PrivacyPage() {
 
         <Section title="How long we keep it">
           <P>
-            Enquiries: as long as needed to deal with them and any follow-up. Accounting and tax records, including
-            receipts: at least 6 years, as UK tax law requires.
+            Enquiries: as long as needed to deal with them and any follow-up. Offer answers: the copy on this site is
+            deleted after 90 days, and the record kept with the resulting order stays as long as that order&apos;s
+            accounting records. Accounting and tax records, including receipts: at least 6 years, as UK tax law
+            requires.
           </P>
         </Section>
 
@@ -176,7 +185,7 @@ export default function PrivacyPage() {
         <Section title="Cookies">
           <P>
             This website does not set any cookies, and we do not use advertising, social media or tracking cookies. Our
-            analytics works without cookies. If you switch between light and dark mode, your choice is saved in your
+            analytics works without cookies, and it does not record the address of offer pages. If you switch between light and dark mode, your choice is saved in your
             browser&apos;s local storage so the site remembers it. This stays on your device and is never sent to us.
             You can clear it at any time in your browser settings.
           </P>

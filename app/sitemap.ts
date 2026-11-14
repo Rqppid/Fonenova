@@ -11,7 +11,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: "https://fonenova.com/privacy",
       // Matches the "Last updated" date on the page; bump both together.
-      lastModified: new Date("2026-10-07"),
+      lastModified: new Date("2026-11-14"),
       changeFrequency: "yearly",
       priority: 0.3,
     },

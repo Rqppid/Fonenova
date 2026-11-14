@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Space_Grotesk } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
+import { SiteAnalytics } from '@/components/site-analytics'
 import { buildJsonLd } from '@/lib/seo'
 import { WhatsAppButton } from '@/components/whatsapp-button'
 import './globals.css'
@@ -120,7 +120,7 @@ export default function RootLayout({
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         {children}
         <WhatsAppButton />
-        <Analytics />
+        <SiteAnalytics />
       </body>
     </html>
   )
