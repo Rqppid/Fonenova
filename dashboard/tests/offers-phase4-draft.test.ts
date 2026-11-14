@@ -29,7 +29,8 @@ function fakeXero(o: { isDemo?: boolean; numbers?: string[]; existing?: { id: st
     async invoiceNumbers() { return numbers },
     async findByReference() { return o.existing ?? null },
     async createDraft(body, key) {
-      if (o.taken?.includes(body.InvoiceNumber)) throw new DuplicateInvoiceNumber()
+      // Someone else took this number between our read and our create: Xero lists it from now on.
+      if (o.taken?.includes(body.InvoiceNumber)) { numbers.push(body.InvoiceNumber); throw new DuplicateInvoiceNumber() }
       created.push(body); keys.push(key); numbers.push(body.InvoiceNumber)
       return { id: `inv-${body.InvoiceNumber}`, number: body.InvoiceNumber, status: 'DRAFT' }
     },
@@ -39,14 +40,15 @@ function fakeXero(o: { isDemo?: boolean; numbers?: string[]; existing?: { id: st
 
 describe('invoice numbers', () => {
   it('goes one past the highest 7-digit number, ignoring other formats', () => {
-    expect(nextInvoiceNumber(['2026046', '2026047', 'INV-0001', '12345', ''], null, false)).toEqual({ ok: true, number: '2026048' })
+    expect(nextInvoiceNumber(['2026046', '2026047', 'INV-0001', '12345', ''], false)).toEqual({ ok: true, number: '2026048' })
   })
-  it('never goes below what this dashboard already raised', () => {
-    expect(nextInvoiceNumber(['2026047'], 2026050, false)).toEqual({ ok: true, number: '2026051' })
+  it('uses only what Xero lists: there is no local counter to go above it', () => {
+    expect(nextInvoiceNumber(['2026047'], false)).toEqual({ ok: true, number: '2026048' })
+    expect(nextInvoiceNumber(['2026047', '2026050'], false)).toEqual({ ok: true, number: '2026051' })
   })
   it('refuses a live organisation with no numbers, seeds a demo one', () => {
-    expect(nextInvoiceNumber([], null, false).ok).toBe(false)
-    expect(nextInvoiceNumber([], null, true)).toEqual({ ok: true, number: '2026001' })
+    expect(nextInvoiceNumber([], false).ok).toBe(false)
+    expect(nextInvoiceNumber([], true)).toEqual({ ok: true, number: '2026001' })
   })
 })
 
@@ -82,7 +84,7 @@ describe('raiseDraft', () => {
     expect(r).toMatchObject({ ok: true, number: '2026048', adopted: false })
     expect(x.created).toHaveLength(1)
     expect(x.keys[0]).toBe('fn-draft-FN-ORD-016-n2026048')
-    expect(store.data.get('offers:invoice-hwm')).toBe(2026048)
+    expect([...store.data.keys()]).toEqual([]) // nothing is remembered locally: the next number comes from Xero
   })
   it('adopts an existing draft with the same reference instead of creating another', async () => {
     const x = fakeXero({ numbers: ['2026047'], existing: { id: 'inv-9', number: '2026048', status: 'DRAFT' } })
