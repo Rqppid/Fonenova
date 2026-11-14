@@ -4,7 +4,7 @@
  */
 import { getDataSource, loadFxRate, loadSettings, loadXeroState } from './data-source'
 import { buildDigest, type Digest } from './digest'
-import { gmailConfig, gmailConnected, sendGmail } from './gmail'
+import { gmailConfig, gmailConnected, sendGmail, type GmailState } from './gmail'
 import { liveView } from './live-view'
 import { todayIso } from './periods'
 import { getJson, getStore } from './store'
@@ -72,6 +72,9 @@ export interface WeeklyEmailState {
   enabled: boolean
   /** The connection can read mail (Offers needs it). */
   canRead: boolean
+  /** Whether the saved login works, and if not exactly why. */
+  state: GmailState
+  message: string | null
   from: string | null
   to: string | null
   last: DigestStatus | null
@@ -79,12 +82,8 @@ export interface WeeklyEmailState {
 
 export async function loadWeeklyEmailState(): Promise<WeeklyEmailState> {
   const c = gmailConfig()
-  if (!c) return { configured: false, connected: false, enabled: false, canRead: false, from: null, to: null, last: null }
+  if (!c) return { configured: false, connected: false, enabled: false, canRead: false, state: 'not_connected', message: null, from: null, to: null, last: null }
   const enabled = await loadSettings().then((s) => s.fridayEmail, () => false)
-  try {
-    const [g, last] = await Promise.all([gmailConnected(), lastDigest()])
-    return { configured: true, connected: g.connected, enabled, canRead: g.canRead, from: g.email, to: c.to, last }
-  } catch {
-    return { configured: true, connected: false, enabled, canRead: false, from: null, to: c.to, last: null }
-  }
+  const [g, last] = await Promise.all([gmailConnected(), lastDigest()])
+  return { configured: true, connected: g.connected, enabled, canRead: g.canRead, state: g.state, message: g.message, from: g.email, to: c.to, last }
 }

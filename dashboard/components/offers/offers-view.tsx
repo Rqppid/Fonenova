@@ -25,7 +25,7 @@ const STATUS: Record<OfferStatus, { label: string; tone: 'warn' | 'gain' | 'neut
 }
 
 interface Setup {
-  gmail: { connected: boolean; email: string | null; canRead: boolean } | null
+  gmail: { connected: boolean; email: string | null; canRead: boolean; message?: string | null } | null
   telegram: boolean
   schedule: boolean
 }
@@ -81,11 +81,11 @@ export function OffersView({ offers, status, setup, selected, clients, send }: {
 function SetupNotes({ setup, status }: { setup: Setup; status: OffersStatus | null }) {
   const notes: { text: React.ReactNode; bad: boolean }[] = []
   if (!setup.gmail) notes.push({ bad: true, text: 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID).' })
-  else if (!setup.gmail.connected) notes.push({ bad: true, text: <>Gmail is not connected. <a className="font-medium text-accent hover:underline" href="/gmail/connect">Connect Gmail</a> with info@fonenova.com.</> })
+  else if (!setup.gmail.connected) notes.push({ bad: true, text: <>{setup.gmail.message ?? 'Gmail is not connected.'} <a className="font-medium text-accent hover:underline" href="/gmail/connect">Open Gmail sign-in</a></> })
   else if (!setup.gmail.canRead) notes.push({ bad: true, text: <>Gmail is connected send-only, so offers can&apos;t be read yet. <a className="font-medium text-accent hover:underline" href="/gmail/connect">Connect Gmail again</a> and allow reading.</> })
   if (!setup.schedule) notes.push({ bad: true, text: 'CRON_SECRET is not set, so the 5-minute check cannot run.' })
   if (!setup.telegram) notes.push({ bad: false, text: 'Telegram is not set up (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID): new offers show here, without a ping.' })
-  const staleGmail = !!status && !status.ok && /^Gmail is (not connected|connected send-only)/.test(status.error ?? '') && !!setup.gmail?.connected && setup.gmail.canRead
+  const staleGmail = !!status && !status.ok && /^(Gmail is|Could not check Gmail|The saved Gmail login|Google no longer accepts)/.test(status.error ?? '') && !!setup.gmail?.connected && setup.gmail.canRead
   if (staleGmail) notes.push({ bad: false, text: 'Gmail is connected now. The last check ran before that; the next one (within 5 minutes) replaces it.' })
   else if (status) notes.push({ bad: !status.ok, text: `Last check ${when(status.lastRunAt)}: ${status.ok ? `${status.checked} new email${status.checked === 1 ? '' : 's'} read, ${status.added} offer${status.added === 1 ? '' : 's'} added.` : `failed. ${status.error ?? ''}`}` })
   else if (setup.gmail?.canRead) notes.push({ bad: false, text: 'The 5-minute check has not run yet.' })
@@ -106,7 +106,7 @@ const fromDraft = (d: Draft): OfferLine | null => {
   return { id: d.id, model: d.model.trim(), storage: d.storage.trim() || null, grade: d.grade.trim() || null, qty, unitCostCents: cost, sourceText: d.sourceText, note: d.note }
 }
 
-export function OfferDetail({ offer, clients = [], send = { allowReal: false, publicStore: false, gmail: false } }: { offer: Offer; clients?: Client[]; send?: SendSetup }) {
+export function OfferDetail({ offer, clients = [], send = { allowReal: false, storeProblem: 'The public offers store is not set up yet.', gmailProblem: null } }: { offer: Offer; clients?: Client[]; send?: SendSetup }) {
   const router = useRouter()
   const [rows, setRows] = useState<Draft[]>(() => offer.lines.map(toDraft))
   const [busy, setBusy] = useState(false)

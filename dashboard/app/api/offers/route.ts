@@ -5,6 +5,7 @@ import { loadClients } from '@/lib/offers/store'
 import { applyAnswer } from '@/lib/offers/resolve'
 import { sendOffer, unlockOffer, withdrawOffer } from '@/lib/offers/send'
 import { notify } from '@/lib/offers/telegram'
+import { ownerEmail } from '@/lib/offers/owner-email'
 import { guard, paymentsJson as json } from '@/lib/payments-guard'
 import { getJson, getStore } from '@/lib/store'
 
@@ -22,10 +23,12 @@ export async function PUT(req: Request) {
     const dashboardUrl = process.env.AUTH_URL?.replace(/\/$/, '')
     const r =
       e.action === 'unlock' ? await unlockOffer(e.id, { store })
-      : e.action === 'withdraw' ? await withdrawOffer(e.id, { store }, (hash) => applyAnswer(hash, { store, notify, dashboardUrl }))
+      : e.action === 'withdraw' ? await withdrawOffer(e.id, { store }, (hash) => applyAnswer(hash, { store, notify, email: ownerEmail(store), dashboardUrl }))
       : await (async () => {
           const c = gmailConfig()
-          if (!c || !(await gmailConnected(store).catch(() => ({ connected: false }))).connected) return { ok: false as const, error: 'Gmail is not connected (Settings, Gmail).' }
+          if (!c) return { ok: false as const, error: 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).' }
+          const g = await gmailConnected(store)
+          if (!g.connected) return { ok: false as const, error: g.message ?? 'Gmail is not connected (Settings, Gmail).' }
           return sendOffer(e.id, { store, allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', mail: (m) => sendGmail(c, { ...m, fromName: 'FoneNova' }, store) })
         })()
     return r.ok ? json({ ok: true, offer: r.offer }) : json({ error: r.error }, 409)

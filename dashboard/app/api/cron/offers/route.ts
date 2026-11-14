@@ -3,6 +3,7 @@ import { cronAuthorised } from '@/lib/cron'
 import { getMessage, gmailConfig, gmailConnected, hasReplied, listMessageIds } from '@/lib/gmail'
 import { ingestOffers } from '@/lib/offers/ingest'
 import { publicStoreConfigured } from '@/lib/offers/public-store'
+import { ownerEmail } from '@/lib/offers/owner-email'
 import { sweepSends } from '@/lib/offers/resolve'
 import { readOffer } from '@/lib/offers/parse'
 import { notify } from '@/lib/offers/telegram'
@@ -23,13 +24,13 @@ async function run(req: Request) {
   // public store, so it runs even when Gmail cannot read mail.
   let swept: Awaited<ReturnType<typeof sweepSends>> | null = null
   if (publicStoreConfigured()) {
-    swept = await sweepSends({ store, notify, dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, '') }).catch(() => null)
+    swept = await sweepSends({ store, notify, email: ownerEmail(store), dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, '') }).catch(() => null)
   }
   const c = gmailConfig()
   if (!c) return NextResponse.json({ ok: true, skipped: 'Gmail is not set up', swept })
   const g = await gmailConnected(store)
   if (!g.connected || !g.canRead) {
-    await store.set('offers:status', { lastRunAt: new Date().toISOString(), ok: false, checked: 0, added: 0, error: g.connected ? 'Gmail is connected send-only: connect it again in Settings to read offers' : 'Gmail is not connected' })
+    await store.set('offers:status', { lastRunAt: new Date().toISOString(), ok: false, checked: 0, added: 0, error: g.connected ? 'Gmail is connected send-only: connect it again in Settings to read offers' : (g.message ?? 'Gmail is not connected') })
     return NextResponse.json({ ok: false, skipped: 'Gmail cannot read mail yet', swept })
   }
   try {

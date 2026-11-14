@@ -129,7 +129,7 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
         <Button size="sm" variant="primary" disabled={busy || !client || !result?.ok} onClick={() => put({ action: 'price', id: offer.id, ...input })}>{busy ? 'Saving…' : saved ? 'Update price' : 'Mark priced'}</Button>
         {saved && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'unprice', id: offer.id })}>Remove price</Button>}
       </div>
-      {saved && <p className="text-[12.5px] text-ink-2">Priced. Sending it to the client comes in the next phase; until then nothing leaves the dashboard.</p>}
+      {saved && <p className="text-[12.5px] text-ink-2">Priced. Send it to the client from the panel below.</p>}
     </section>
   )
 }

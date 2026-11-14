@@ -6,6 +6,7 @@
  */
 import 'server-only'
 import crypto from 'node:crypto'
+import { checkPublicStoreEnv } from './env-check'
 
 /** What a client sees. Sale prices only: there is no field for cost, margin or profit. */
 export interface PublicOffer {
@@ -34,18 +35,35 @@ const KEEP_AFTER_EXPIRY_SECONDS = 30 * 24 * 3600
 export const newToken = () => crypto.randomBytes(32).toString('base64url')
 export const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex')
 
+/** Set, and not obviously mistyped. */
 export function publicStoreConfigured(): boolean {
-  return !!(process.env.OFFERS_PUBLIC_REDIS_URL && process.env.OFFERS_PUBLIC_REDIS_TOKEN)
+  return checkPublicStoreEnv(process.env).configured
 }
 
+/** Why the public store cannot be used, in plain words naming the variable (never its value), or null. */
+export function publicStoreProblem(): string | null {
+  const c = checkPublicStoreEnv(process.env)
+  if (c.problem) return c.problem
+  return c.configured ? null : 'The public offers store is not set up yet (OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel).'
+}
+
+/**
+ * Every error from here is a plain sentence. The values of the variables are checked before any
+ * request, and a failing request is reported without the text of the underlying error: Node's own
+ * messages ("Invalid header", "Failed to parse URL") contain the value they choked on.
+ */
 async function run(cmd: (string | number)[]): Promise<unknown> {
-  const url = process.env.OFFERS_PUBLIC_REDIS_URL
-  const token = process.env.OFFERS_PUBLIC_REDIS_TOKEN
-  if (!url || !token) throw new Error('The public offers store is not set up (OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN)')
-  const res = await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(cmd), cache: 'no-store', signal: AbortSignal.timeout(8_000) })
-  if (!res.ok) throw new Error(`The public offers store answered ${res.status}`)
-  const body = (await res.json()) as { result?: unknown; error?: string }
-  if (body.error) throw new Error('The public offers store refused a command')
+  const problem = publicStoreProblem()
+  if (problem) throw new Error(problem)
+  let res: Response
+  try {
+    res = await fetch(process.env.OFFERS_PUBLIC_REDIS_URL!, { method: 'POST', headers: { authorization: `Bearer ${process.env.OFFERS_PUBLIC_REDIS_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify(cmd), cache: 'no-store', signal: AbortSignal.timeout(8_000) })
+  } catch (e) {
+    throw new Error(e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'The public offers store did not answer in time.' : 'The public offers store could not be reached. Check OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel.')
+  }
+  if (!res.ok) throw new Error(res.status === 401 || res.status === 403 ? 'The public offers store refused the token. Check OFFERS_PUBLIC_REDIS_TOKEN in Vercel.' : `The public offers store answered ${res.status}.`)
+  const body = (await res.json().catch(() => ({}))) as { result?: unknown; error?: string }
+  if (body.error) throw new Error('The public offers store refused a command.')
   return body.result
 }
 

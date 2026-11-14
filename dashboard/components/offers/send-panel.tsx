@@ -14,10 +14,12 @@ const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFrac
 export interface SendSetup {
   /** Offers to real (non-test) clients are switched on. */
   allowReal: boolean
-  /** The public offers store is set up. */
-  publicStore: boolean
-  /** Gmail is connected. */
-  gmail: boolean
+  /** Why the public offers store cannot be used (not set up, or a variable looks mistyped), or null. Never contains a value. */
+  storeProblem: string | null
+  /** Why Gmail cannot send (and how to fix it), or null when it is connected. */
+  gmailProblem: string | null
+  /** A note about OFFERS_WEBHOOK_TOKEN, which does not block sending. */
+  webhookWarning?: string | null
 }
 
 function SendRow({ s }: { s: OfferSend }) {
@@ -102,8 +104,8 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
   if (offer.status !== 'ready' || !offer.pricing || !client) return history ? <section className="rounded-md border border-line p-4" data-testid="send-panel">{history}</section> : null
   const r = priceOffer(offer.lines, client, { clientId: client.id, marginCents: offer.pricing.marginCents, overrides: offer.pricing.overrides, ackLow: offer.pricing.ackLow })
   const pub = publicLines(offer.lines, r)
-  const blocked = !setup.publicStore ? 'The public offers store is not set up yet (OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel).'
-    : !setup.gmail ? 'Gmail is not connected (Settings, Gmail).'
+  const blocked = setup.storeProblem ? setup.storeProblem
+    : setup.gmailProblem ? setup.gmailProblem
     : !client.test && !setup.allowReal ? 'Offers to real clients are switched on with the next phase. Price it for the test client to try the whole journey yourself.'
     : !client.offerEmails.length ? (client.test ? 'Add your own email address to the test client first (Offers, Clients).' : `${client.name} has no offer email address (Offers, Clients).`)
     : !r.ok ? 'The price needs attention. Update it above.'
@@ -123,6 +125,7 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
       </div>
       <p className="text-[13px] text-ink-2">To: <strong className="text-ink">{client.offerEmails.join(', ') || 'no address yet'}</strong>{client.test && ' (test client: the email is marked [TEST])'}</p>
       {blocked && <p className="rounded-md border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] text-warn" data-testid="send-blocked">{blocked}</p>}
+      {!blocked && setup.webhookWarning && <p className="text-[12.5px] text-ink-2" data-testid="send-webhook-note">{setup.webhookWarning}</p>}
       {errorBox}
       {!confirming ? (
         <Button size="sm" variant="primary" disabled={!!blocked || busy} onClick={() => setConfirming(true)}><Send className="h-4 w-4" aria-hidden />Send to {client.name}</Button>

@@ -55,7 +55,7 @@ beforeEach(async () => {
   webhooks.length = 0
   afterCalls.length = 0
   reqHeaders.value = new Headers({ 'x-vercel-forwarded-for': '203.0.113.7' })
-  Object.assign(process.env, { OFFERS_PUBLIC_REDIS_URL: STORE, OFFERS_PUBLIC_REDIS_TOKEN: 'store-token', OFFERS_WEBHOOK_TOKEN: 'webhook-token-0123456789abcdef', OFFERS_WEBHOOK_URL: 'https://dashboard.example.test/api/offers/answered' })
+  Object.assign(process.env, { OFFERS_PUBLIC_REDIS_URL: STORE, OFFERS_PUBLIC_REDIS_TOKEN: 'store-token-0123456789abcdefghij', OFFERS_WEBHOOK_TOKEN: 'webhook-token-0123456789abcdef', OFFERS_WEBHOOK_URL: 'https://dashboard.example.test/api/offers/answered' })
   vi.stubGlobal('fetch', fakeFetch())
 })
 afterEach(() => {

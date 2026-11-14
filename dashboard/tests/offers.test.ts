@@ -233,20 +233,36 @@ describe('watchdog', () => {
 })
 
 describe('the Gmail card', () => {
-  const state = { configured: true, connected: true, enabled: false, canRead: true, from: 'owner@example.test', to: 'owner@example.test', last: null }
-  it('shows one Gmail connection with the Friday email as a switch that is off, and no "send only" wording', async () => {
-    const { WeeklyEmailCard } = await import('@/components/dashboard/automations')
-    const off = renderToString(h(WeeklyEmailCard, { state, notice: null })).replace(/<!-- -->/g, '')
-    for (const t of ['>Gmail<', 'reads offers', 'Friday cash email', 'Off: nothing is sent on Fridays.', 'role="switch"', 'aria-checked="false"']) expect(off, t).toContain(t)
-    expect(off).not.toContain('send only')
-    const on = renderToString(h(WeeklyEmailCard, { state: { ...state, enabled: true }, notice: null })).replace(/<!-- -->/g, '')
-    expect(on).toContain('aria-checked="true"')
-    expect(on).toContain('every Friday about 16:00 UK')
-    const sendOnly = renderToString(h(WeeklyEmailCard, { state: { ...state, canRead: false }, notice: null })).replace(/<!-- -->/g, '')
-    expect(sendOnly).toContain('send-only: disconnect and connect again to read offers')
-    const none = renderToString(h(WeeklyEmailCard, { state: { ...state, connected: false }, notice: null }))
-    expect(none).toContain('Connect Gmail</a>')
-    expect(none).not.toContain('send only')
+  const state = { configured: true, connected: true, enabled: false, canRead: true, state: 'connected' as const, message: null as string | null, from: 'owner@example.test', to: 'owner@example.test', last: null }
+  const draw = async (s: typeof state | Record<string, unknown>) => {
+    const { GmailCard } = await import('@/components/dashboard/automations')
+    return renderToString(h(GmailCard, { state: s as never, notice: null })).replace(/<!-- -->/g, '')
+  }
+
+  it('describes only what the connection does: reads offers and sends emails, with no Friday email anywhere', async () => {
+    const html = await draw(state)
+    for (const t of ['>Gmail<', 'reads offers and sends emails', 'reads Mobile One’s offers every 5 minutes', 'never changes or deletes mail', 'Disconnect']) expect(html, t).toContain(t)
+    for (const w of ['Friday', 'weekly', 'cash email', 'role="switch"', 'Send test email']) expect(html, w).not.toContain(w)
+    expect(html).not.toContain('Reconnect Gmail')
+  })
+
+  it('says exactly what is wrong and offers the right button for each state', async () => {
+    const { GMAIL_MESSAGES } = await import('@/lib/gmail')
+    const notConnected = await draw({ ...state, connected: false, state: 'not_connected', message: GMAIL_MESSAGES.not_connected })
+    expect(notConnected).toContain('Gmail is not connected. Press Connect Gmail')
+    expect(notConnected).toContain('>Connect Gmail</a>')
+    for (const s of ['unreadable', 'needs_reconnect'] as const) {
+      const html = await draw({ ...state, connected: false, state: s, message: GMAIL_MESSAGES[s] })
+      expect(html, s).toContain('>Reconnect Gmail</a>')
+      expect(html, s).toContain(GMAIL_MESSAGES[s].slice(0, 30))
+    }
+    const down = await draw({ ...state, connected: false, state: 'check_failed', message: GMAIL_MESSAGES.check_failed })
+    expect(down).toContain('Nothing was disconnected')
+    expect(down).toContain('Check again')
+    expect(down).not.toContain('/gmail/connect') // a store hiccup is not a reason to sign in again
+    const sendOnly = await draw({ ...state, canRead: false })
+    expect(sendOnly).toContain('send-only: press Reconnect Gmail so offers can be read')
+    expect(sendOnly).toContain('>Reconnect Gmail</a>')
   })
 })
 

@@ -70,7 +70,7 @@ beforeEach(async () => {
   for (const k of ['KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL', 'KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_TOKEN']) delete process.env[k]
   Object.assign(process.env, {
     FN_DATA_DIR: dir, AUTH_URL: 'https://dashboard.example.test', GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', FN_GMAIL_API_URL: GMAIL,
-    OFFERS_PUBLIC_REDIS_URL: PUB, OFFERS_PUBLIC_REDIS_TOKEN: 'pub-token', OFFERS_WEBHOOK_TOKEN: WEBHOOK,
+    OFFERS_PUBLIC_REDIS_URL: PUB, OFFERS_PUBLIC_REDIS_TOKEN: 'pub-token-0123456789abcdefghij', OFFERS_WEBHOOK_TOKEN: WEBHOOK,
     TELEGRAM_BOT_TOKEN: 'bot', TELEGRAM_CHAT_ID: '1', FN_TELEGRAM_API_URL: 'https://telegram.example.test',
   })
   delete process.env.OFFERS_ALLOW_REAL_SEND
@@ -173,7 +173,7 @@ describe('sending an offer', () => {
 
   it('sends nothing and says so when the public store is not set up', async () => {
     delete process.env.OFFERS_PUBLIC_REDIS_URL
-    expect(await send(offer())).toMatchObject({ ok: false, error: expect.stringContaining('public offers store is not set up') })
+    expect(await send(offer())).toMatchObject({ ok: false, error: expect.stringContaining('OFFERS_PUBLIC_REDIS_URL is not set') })
     expect(mails).toHaveLength(0)
   })
 
@@ -419,7 +419,7 @@ describe('keeping the two sides in step', () => {
 
 describe('the Send panel', () => {
   const render = (el: Parameters<typeof renderToString>[0]) => renderToString(el).replace(/<!-- -->/g, '')
-  const setup = { allowReal: false, publicStore: true, gmail: true }
+  const setup = { allowReal: false, storeProblem: null as string | null, gmailProblem: null as string | null }
   const send1 = (p: Partial<OfferSend> = {}): OfferSend => ({ clientId: 'c_test', clientName: 'Test client (my own inbox)', to: ['buyer@example.test'], tokenHash: 'a'.repeat(64), tokenHint: 'abc123', sentAt: '2026-11-14T09:00:00.000Z', expiresAt: '2026-11-15T09:00:00.000Z', totalCents: 119_420_50, units: 350, test: true, gmailMessageId: 'gm1', outcome: 'pending', ...p })
 
   it('previews exactly what the client sees, with sale prices only, and asks before sending', async () => {
@@ -436,8 +436,8 @@ describe('the Send panel', () => {
     const wave = offer({ pricing: { clientId: 'c_wave', marginCents: 700, overrides: {}, ackLow: false, pricedAt: '' } })
     expect(render(h(SendPanel, { offer: wave, clients: clients(), setup }))).toContain('real clients are switched on with the next phase')
     expect(render(h(SendPanel, { offer: wave, clients: clients(), setup: { ...setup, allowReal: true } }))).not.toContain('send-blocked')
-    expect(render(h(SendPanel, { offer: offer(), clients: clients(), setup: { ...setup, publicStore: false } }))).toContain('public offers store is not set up')
-    expect(render(h(SendPanel, { offer: offer(), clients: clients(), setup: { ...setup, gmail: false } }))).toContain('Gmail is not connected')
+    expect(render(h(SendPanel, { offer: offer(), clients: clients(), setup: { ...setup, storeProblem: 'The public offers store is not set up yet (OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel).' } }))).toContain('public offers store is not set up')
+    expect(render(h(SendPanel, { offer: offer(), clients: clients(), setup: { ...setup, gmailProblem: 'Gmail is not connected. Press Connect Gmail (Settings, Gmail) and sign in as info@fonenova.com.' } }))).toContain('Gmail is not connected')
     expect(render(h(SendPanel, { offer: offer(), clients: seedClients(), setup }))).toContain('Add your own email address')
   })
 

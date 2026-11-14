@@ -171,11 +171,10 @@ Gmail needs read access: new connections ask for `gmail.send` and `gmail.readonl
 never change or delete). Connect Gmail again in Settings once; the consent screen must be
 Internal (Workspace) or the token expires after 7 days.
 
-The Friday cash email is a separate switch in Settings → Gmail, **off by default** (the same Gmail
-connection serves offers, so connecting it does not start the email). `/api/cron/digest` answers
-"switched off" and sends nothing unless it is on; "Send test email now" always works. An offer
-whose Gmail thread already has our reply (answered by hand) is stored as "not an offer" with a
-note and no Telegram ping; Restore brings it back.
+The Friday cash email has been removed (no scheduled job, nothing on the Settings card); the
+`fridayEmail` setting stays off and `/api/cron/digest` answers "switched off". An offer whose Gmail
+thread already has our reply (answered by hand) is stored as "not an offer" with a note and no
+Telegram ping; Restore brings it back.
 
 ### Offers phase 2: clients and pricing
 
@@ -205,6 +204,15 @@ changes nothing. The 5-minute check (`/api/cron/offers`) also picks up missed an
 offers past their deadline and rolls back a send that never completed. Accept, decline and expiry
 each ping Telegram; a declined or expired offer is unlocked with one click to reprice.
 
+When a client accepts, declines or lets an offer expire, Telegram is told and so is the owner by
+email (`lib/offers/notify-email.ts`, sale prices only); a failed email never stops the status
+update or the Telegram message. The three variables (`OFFERS_PUBLIC_REDIS_URL`,
+`OFFERS_PUBLIC_REDIS_TOKEN`, `OFFERS_WEBHOOK_TOKEN`) are checked before use
+(`lib/offers/env-check.ts`): a pasted `.env` block, quotes, spaces or a half address give a plain
+"<NAME> looks malformed" and the value is never shown. Gmail's state is explicit: not connected,
+unreadable, check failed (the store did not answer: nothing was disconnected) or needs reconnect
+(Google no longer accepts the login), each with its fix.
+
 Real clients stay switched off until the order and invoice steps exist (`OFFERS_ALLOW_REAL_SEND`
 unset): until then offers go to the test client only.
 
@@ -217,7 +225,7 @@ last 7 days (red at 14), no gaps in your invoice numbers, and (where `PAYMENTS_A
 the payments service's `/api/health`: red when it answers 503 `{ok:false}`, has not run for 30
 minutes, or cannot be reached within 7 s (4 s when the dashboard page itself checks, so a hung
 service cannot hold the page up). The service's `last_error` is shown as details, not the headline. Settings shows the list, the
-status pill turns red, and the Friday email has a System health section.
+status pill turns red.
 
 It then pings `HEALTHCHECK_URL` (a free [Healthchecks.io](https://healthchecks.io) check, period
 1 day, grace 6 hours): `/fail` with the problems when anything is red, a plain ping otherwise.
@@ -225,19 +233,18 @@ Healthchecks emails you on a fail, and also when no ping arrives at all, so a st
 Vercel outage or an expired connection is reported without anyone opening the dashboard.
 An invoice number deleted in Invoice2Go can be marked "never used" in Settings.
 
-## Friday cash email
+## Gmail setup (offers and notifications)
 
-Every Friday at 16:00 UTC (`vercel.json`, `/api/cron/digest`, locked by `CRON_SECRET`) the
-dashboard emails who is late paying, supplier bills due in the next 14 days next to what clients
-owe, the live Xero checks, and drafts to approve. It is built by `lib/digest.ts` from the same
-view as the page (`lib/live-view.ts`) and sent through Gmail with a send-only connection
-(`lib/gmail.ts`, scope `gmail.send`; it can never read mail). Settings has **Connect Gmail** and
-**Send test email now**.
+The dashboard's one Gmail connection (`lib/gmail.ts`, scopes `gmail.send` and `gmail.readonly`)
+reads Mobile One's offers and sends the offer emails and the answer notifications. The Friday cash
+email that once used it has been removed: `lib/digest.ts` and `/api/cron/digest` remain in the
+code, but nothing schedules them and the `fridayEmail` setting is off, so nothing is sent.
 
 Setup, once: in Google Cloud (project of the sign-in client) enable the **Gmail API**, add
 `https://dashboard.fonenova.com/gmail/callback` as a redirect URI on the OAuth client, and set
-the consent screen's user type to **Internal** so the connection never expires. Recipient:
-`DIGEST_TO`, else `AUTH_ALLOWED_EMAIL`.
+the consent screen's user type to **Internal** so the connection never expires. Then **Connect
+Gmail** in Settings. Notifications go to `DIGEST_TO`, else `AUTH_ALLOWED_EMAIL`, else the
+dashboard's own address.
 
 ## AI bar (search and questions)
 

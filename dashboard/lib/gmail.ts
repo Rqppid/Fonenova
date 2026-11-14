@@ -9,7 +9,7 @@
  * token does not expire.
  */
 import crypto from 'node:crypto'
-import { getJson, getStore, type Store } from './store'
+import { getJson, getStore, type ReadResult, type Store } from './store'
 
 const AUTH = () => process.env.FN_GOOGLE_AUTH_URL ?? 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN = () => process.env.FN_GOOGLE_TOKEN_URL ?? 'https://oauth2.googleapis.com/token'
@@ -49,13 +49,48 @@ interface Tokens {
   refreshToken: string
   expiresAt: number
   email: string
+  /** Google no longer accepts the saved login (invalid_grant): it must be connected again. */
+  needsReconnect?: boolean
   /** The scope Google granted. Missing on tokens saved before reading existed: send-only. */
   scope?: string
 }
 
-export async function gmailConnected(store: Store = getStore()): Promise<{ connected: boolean; email: string | null; canRead: boolean }> {
-  const t = await getJson<Tokens>(store, 'gmail:tokens')
-  return { connected: !!t, email: t?.email ?? null, canRead: scopeCanRead(t?.scope) }
+/** What state the saved Gmail login is in, so "not connected" is never a guess. */
+export type GmailState = 'connected' | 'not_connected' | 'unreadable' | 'check_failed' | 'needs_reconnect'
+
+/** Plain sentences with the fix, shown wherever Gmail is not working. */
+export const GMAIL_MESSAGES: Record<Exclude<GmailState, 'connected'>, string> = {
+  not_connected: 'Gmail is not connected. Press Connect Gmail (Settings, Gmail) and sign in as info@fonenova.com.',
+  unreadable: 'The saved Gmail login cannot be read (the store key changed). Press Reconnect Gmail (Settings, Gmail) and sign in again.',
+  check_failed: 'Could not check Gmail just now (the online store did not answer). Nothing was disconnected: refresh in a minute.',
+  needs_reconnect: 'Google no longer accepts the saved Gmail login. Press Reconnect Gmail (Settings, Gmail) and sign in again.',
+}
+
+export interface GmailStatus {
+  /** Saved, readable and accepted by Google (as far as we know). */
+  connected: boolean
+  email: string | null
+  canRead: boolean
+  state: GmailState
+  /** What is wrong and how to fix it. Null when connected. */
+  message: string | null
+}
+
+/** Never throws: a store that cannot be reached is "check_failed", not "not connected". */
+export async function gmailConnected(store: Store = getStore()): Promise<GmailStatus> {
+  const no = (state: Exclude<GmailState, 'connected'>): GmailStatus => ({ connected: false, email: null, canRead: false, state, message: GMAIL_MESSAGES[state] })
+  let r: ReadResult
+  try {
+    r = await store.get('gmail:tokens')
+  } catch {
+    return no('check_failed')
+  }
+  if (r.kind === 'missing') return no('not_connected')
+  if (r.kind === 'invalid') return no('unreadable')
+  const t = r.value as Tokens
+  if (!t || typeof t !== 'object') return no('unreadable')
+  if (t.needsReconnect) return { ...no('needs_reconnect'), email: t.email ?? null }
+  return { connected: true, email: t.email ?? null, canRead: scopeCanRead(t.scope), state: 'connected', message: null }
 }
 
 export async function disconnectGmail(): Promise<void> {
@@ -108,9 +143,20 @@ export async function finishGmailAuth(c: GmailConfig, code: string, verifier: st
 async function accessToken(c: GmailConfig, store: Store): Promise<Tokens> {
   return store.withLock('gmail:tokens', async () => {
     const t = await getJson<Tokens>(store, 'gmail:tokens')
-    if (!t) throw new Error('Gmail is not connected')
+    if (!t) throw new Error(GMAIL_MESSAGES.not_connected)
+    if (t.needsReconnect) throw new Error(GMAIL_MESSAGES.needs_reconnect)
     if (t.expiresAt - 60_000 > Date.now()) return t
-    const r = await tokenRequest(c, { grant_type: 'refresh_token', refresh_token: t.refreshToken })
+    let r: Awaited<ReturnType<typeof tokenRequest>>
+    try {
+      r = await tokenRequest(c, { grant_type: 'refresh_token', refresh_token: t.refreshToken })
+    } catch (e) {
+      // Google says the login is no longer valid: remember it, so every screen says "reconnect".
+      if (e instanceof Error && e.message.includes('invalid_grant')) {
+        await store.set('gmail:tokens', { ...t, needsReconnect: true })
+        throw new Error(GMAIL_MESSAGES.needs_reconnect)
+      }
+      throw e
+    }
     const next = { ...t, accessToken: r.access_token, refreshToken: r.refresh_token ?? t.refreshToken, expiresAt: Date.now() + r.expires_in * 1000 }
     await store.set('gmail:tokens', next)
     return next
