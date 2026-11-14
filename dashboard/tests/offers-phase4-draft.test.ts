@@ -81,7 +81,7 @@ describe('raiseDraft', () => {
     const r = await raiseDraft({ ...base, api: x.api, store, test: false })
     expect(r).toMatchObject({ ok: true, number: '2026048', adopted: false })
     expect(x.created).toHaveLength(1)
-    expect(x.keys[0]).toBe('fn-draft-FN-ORD-016')
+    expect(x.keys[0]).toBe('fn-draft-FN-ORD-016-n2026048')
     expect(store.data.get('offers:invoice-hwm')).toBe(2026048)
   })
   it('adopts an existing draft with the same reference instead of creating another', async () => {

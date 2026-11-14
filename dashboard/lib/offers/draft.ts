@@ -6,6 +6,7 @@
  */
 import { getJson, type Store } from '../store'
 import type { Client } from './clients'
+import type { DraftDebug } from './types'
 import { nextInvoiceNumber } from './numbering'
 import type { PublicLine } from './pricing'
 
@@ -40,7 +41,7 @@ export interface DraftBody {
 export interface XeroInvoiceRef { id: string; number: string; status: string }
 
 export interface XeroApi {
-  organisation(): Promise<{ name: string; isDemo: boolean }>
+  organisation(): Promise<{ name: string; isDemo: boolean; id?: string }>
   /** Every sales (ACCREC) invoice number in the organisation, whatever its status. */
   invoiceNumbers(): Promise<string[]>
   findByReference(reference: string): Promise<XeroInvoiceRef | null>
@@ -61,7 +62,7 @@ export class DuplicateInvoiceNumber extends Error {
 
 /** Xero understood the draft and refused it (a 400): a rule or a setting is wrong, so trying again cannot help. */
 export class XeroRejected extends Error {
-  constructor(public messages: string[], public field: string | null) {
+  constructor(public messages: string[], public field: string | null, public debug?: DraftDebug) {
     super('Xero rejected the draft invoice')
     this.name = 'XeroRejected'
   }
@@ -113,7 +114,7 @@ export function parseXeroValidation(text: string): { messages: string[]; field: 
 
 export type DraftResult =
   | { ok: true; id: string; number: string; org: string; adopted: boolean }
-  | { ok: false; error: string; /** Worth retrying later: Xero or the network, not a rule. */ retry: boolean; details?: string[]; field?: string }
+  | { ok: false; error: string; /** Worth retrying later: Xero or the network, not a rule. */ retry: boolean; details?: string[]; field?: string; debug?: DraftDebug; rejected?: boolean }
 
 const euros = (cents: number) => Math.round(cents) / 100
 const isoDate = (d: Date) => d.toISOString().slice(0, 10)
@@ -141,9 +142,9 @@ export function buildDraftBody(a: { number: string; reference: string; contactId
 
 const MAX_TRIES = 3
 
-export async function raiseDraft(a: { api: XeroApi; store: Store; reference: string; client: Client; test: boolean; lines: readonly PublicLine[]; settings: DraftSettings; now?: Date }): Promise<DraftResult> {
+export async function raiseDraft(a: { api: XeroApi; store: Store; reference: string; client: Client; test: boolean; lines: readonly PublicLine[]; settings: DraftSettings; now?: Date; idempotencyKey?: string }): Promise<DraftResult> {
   const now = a.now ?? new Date()
-  const fail = (error: string, retry = false, extra: { details?: string[]; field?: string } = {}): DraftResult => ({ ok: false, error, retry, ...extra })
+  const fail = (error: string, retry = false, extra: { details?: string[]; field?: string; debug?: DraftDebug; rejected?: boolean } = {}): DraftResult => ({ ok: false, error, retry, ...extra })
   if (!a.client.xeroContactId) return fail(`${a.client.name} has no Xero ContactID yet. Add it on the Clients screen.`)
   if (a.lines.length === 0) return fail('The offer has no priced lines, so there is nothing to invoice.')
   try {
@@ -164,7 +165,9 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
         if (!n.ok) return fail(n.error)
         const body = buildDraftBody({ number: n.number, reference: a.reference, contactId: a.client.xeroContactId!, lines: a.lines, terms: a.client.terms, now, settings: a.settings })
         try {
-          const made = await a.api.createDraft(body, `fn-draft-${a.reference}`)
+          // The key carries the invoice number: a different number is a different request, and Xero
+          // answers the same key with the same (stored) result.
+          const made = await a.api.createDraft(body, `${a.idempotencyKey ?? `fn-draft-${a.reference}`}-n${n.number}`)
           await a.store.set('offers:invoice-hwm', Number(n.number))
           return { ok: true, id: made.id, number: made.number, org: org.name, adopted: false }
         } catch (e) {
@@ -177,7 +180,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
             // Xero understood the draft and refused it: say exactly why, and which setting to check.
             const found = a.api.diagnose ? await a.api.diagnose(body).catch(() => [] as string[]) : []
             const first = e.messages[0] ?? 'no reason given'
-            return fail(`Xero rejected the draft invoice${e.field ? ` (${e.field})` : ''}: ${first}`, false, { details: [...e.messages, ...found], ...(e.field ? { field: e.field } : {}) })
+            return fail(`Xero rejected the draft invoice${e.field ? ` (${e.field})` : ''}: ${first}`, false, { details: [...e.messages, ...found], rejected: true, ...(e.field ? { field: e.field } : {}), ...(e.debug ? { debug: e.debug } : {}) })
           }
           throw e
         }

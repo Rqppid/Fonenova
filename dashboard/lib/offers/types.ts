@@ -52,6 +52,29 @@ export interface OfferSend {
   resolvedAt?: string
 }
 
+/**
+ * What was sent to Xero for a draft invoice and what came back, for debugging a refusal. Never a
+ * token or an Authorization header: the tenant is shown as its first 8 characters.
+ */
+export interface DraftDebug {
+  at: string
+  method: string
+  endpoint: string
+  apiVersion: string
+  /** First 8 characters of the Xero-Tenant-Id header the request carried. */
+  tenant: string
+  /** First 8 characters of the OrganisationID Xero reported for that tenant (should match `tenant`). */
+  organisationId?: string | null
+  /** Organisations the write app is connected to, as "name [first 8 of id]". */
+  connections?: string[]
+  idempotencyKey: string
+  /** The fields that matter, exactly as sent (the currency fields included; CurrencyRate is not sent). */
+  request: Record<string, unknown>
+  status: number
+  /** Xero's own error body, truncated and with anything bearer-like removed. */
+  rawBody: string
+}
+
 /** What happens after a client accepts: the reply to Mobile One and the DRAFT invoice in Xero. */
 export interface ReplyStep {
   /** held = waiting for the owner's one tap (a check failed or could not be made). */
@@ -77,6 +100,10 @@ export interface DraftStep {
   details?: string[]
   /** Which setting the message points at (Branding theme, Currency, Tax type, Account code, Contact, Date). */
   field?: string
+  /** The request and Xero's raw answer for the last refusal. */
+  debug?: DraftDebug
+  /** How many times Xero has definitely refused this draft. Each refusal moves the idempotency key on, so a fixed setting is never answered from a stored refusal. */
+  rejections?: number
 }
 export interface Fulfilment {
   /** FN-ORD-### for a real offer, TEST-### for a test one. */

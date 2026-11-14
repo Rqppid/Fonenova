@@ -81,6 +81,12 @@ export function AfterAcceptance({ offer }: { offer: Offer }) {
             </p>
           )}
           {(d.state === 'pending' || d.state === 'working') && <p>Creating the draft…</p>}
+          {d.debug && (d.state === 'blocked' || d.state === 'failed') && (
+            <details className="mt-1 text-[12px]" data-testid="draft-debug">
+              <summary className="cursor-pointer">Technical detail (what was sent to Xero and what came back)</summary>
+              <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-subtle p-2 font-mono text-[11.5px] text-ink">{JSON.stringify(d.debug, null, 2)}</pre>
+            </details>
+          )}
           {d.state === 'blocked' && (
             <>
               <p>Needs you: {d.reason}</p>

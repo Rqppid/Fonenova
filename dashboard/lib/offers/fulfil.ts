@@ -15,7 +15,7 @@ import { emailAddress } from './clean'
 import { seedClients, type Client } from './clients'
 import { nextOrderRef } from './numbering'
 import { itemsFor } from './resolve'
-import type { Fulfilment, Offer, OfferSend } from './types'
+import type { DraftDebug, Fulfilment, Offer, OfferSend } from './types'
 
 export interface ReplyMessage { to: string; subject: string; text: string; threadId?: string; inReplyTo?: string }
 
@@ -164,8 +164,10 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   if (!claimed?.fulfilment || claimed.fulfilment.draft.state !== 'working') return
   const f = claimed.fulfilment
   const finish = async (draft: Fulfilment['draft'], note: string) => mutate(d.store, id, (o) => (o.fulfilment ? { ...o, updatedAt: nowOf(d).toISOString(), fulfilment: { ...o.fulfilment, draft }, audit: log(o, nowOf(d).toISOString(), note) } : null))
-  const block = async (reason: string, extra: { details?: string[]; field?: string } = {}) => {
-    await finish({ ...f.draft, state: 'blocked', attempts: Math.max(0, f.draft.attempts - 1), reason, details: extra.details, field: extra.field }, `Draft invoice blocked: ${reason}`)
+  const block = async (reason: string, extra: { details?: string[]; field?: string; debug?: DraftDebug; rejected?: boolean } = {}) => {
+    // A definite refusal moves the idempotency key on, so the next attempt (after a setting is fixed) is a new request.
+    const rejections = (f.draft.rejections ?? 0) + (extra.rejected ? 1 : 0)
+    await finish({ ...f.draft, state: 'blocked', attempts: Math.max(0, f.draft.attempts - 1), reason, details: extra.details, field: extra.field, debug: extra.debug, rejections }, `Draft invoice blocked: ${reason}`)
     // Tell the owner once per distinct reason (pressing Try again must not repeat the same message).
     if (extra.details && f.draft.reason !== reason) await d.notify(`The draft invoice for ${f.orderRef} was refused by Xero.\n${reason}\nOpen the offer for the full detail.`, link(d, claimed))
   }
@@ -177,13 +179,13 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   const lines = await itemsFor(d.store, claimed)
   if (!client || !lines) return void (await block('The offer could not be priced again from its saved settings.'))
 
-  const r = await raiseDraft({ api, store: d.store, reference: f.orderRef, client, test: f.test, lines, settings: await loadDraftSettings(d.store), now: nowOf(d) })
+  const r = await raiseDraft({ api, store: d.store, reference: f.orderRef, client, test: f.test, lines, settings: await loadDraftSettings(d.store), now: nowOf(d), idempotencyKey: `fn-draft-${f.orderRef}-r${f.draft.rejections ?? 0}` })
   if (r.ok) {
-    await finish({ ...f.draft, state: 'done', invoiceId: r.id, invoiceNumber: r.number, org: r.org, at: nowOf(d).toISOString(), reason: undefined, details: undefined, field: undefined }, `${r.adopted ? 'Found the existing' : 'Created'} DRAFT invoice ${r.number} in Xero (${r.org}) for ${f.orderRef}`)
+    await finish({ ...f.draft, state: 'done', invoiceId: r.id, invoiceNumber: r.number, org: r.org, at: nowOf(d).toISOString(), reason: undefined, details: undefined, field: undefined, debug: undefined }, `${r.adopted ? 'Found the existing' : 'Created'} DRAFT invoice ${r.number} in Xero (${r.org}) for ${f.orderRef}`)
     return
   }
-  if (!r.retry) return void (await block(r.error, { details: r.details, field: r.field }))
-  await finish({ ...f.draft, state: 'failed', reason: r.error, details: undefined, field: undefined }, `Draft invoice failed (try ${f.draft.attempts}): ${r.error}`)
+  if (!r.retry) return void (await block(r.error, { details: r.details, field: r.field, debug: r.debug, rejected: r.rejected }))
+  await finish({ ...f.draft, state: 'failed', reason: r.error, details: undefined, field: undefined, debug: undefined }, `Draft invoice failed (try ${f.draft.attempts}): ${r.error}`)
   if (f.draft.attempts === ALERT_AT) await d.notify(`The draft invoice for ${f.orderRef} failed ${f.draft.attempts} times: ${r.error}\nIt keeps trying every 5 minutes.`, link(d, claimed))
 }
 
