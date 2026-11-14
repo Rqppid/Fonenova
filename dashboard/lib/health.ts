@@ -36,9 +36,9 @@ export interface HealthInput {
   trackerWritesWanted?: boolean
   make: MakeStatus | null
   makeConfigured: boolean
-  gmail: { configured: boolean; connected: boolean; canRead?: boolean }
-  /** The Friday cash email is switched on in Settings. */
-  fridayEmail?: boolean
+  gmail: { configured: boolean; connected: boolean; canRead?: boolean; message?: string | null }
+  /** Plain sentences about the Offers variables that are missing or mistyped (never their values). */
+  offersConfig?: string[]
   watchdogConfigured: boolean
   /** Invoice numbers the owner confirmed were never used (e.g. deleted in Invoice2Go). */
   ignoredInvoiceNumbers: string[]
@@ -159,7 +159,7 @@ export function healthChecks(h: HealthInput): HealthCheck[] {
   if (h.offers) {
     const mins = (h.now.getTime() - Date.parse(h.offers.lastRunAt)) / 60_000
     if (mins > 30) add({ id: 'offers', level: 'red', title: 'Mobile One offers are not being checked', detail: `Last check ${Math.round(mins / 60) >= 2 ? `${Math.round(mins / 60)} h` : `${Math.round(mins)} min`} ago.`, fix: 'Check the QStash schedule in Upstash calls /api/cron/offers every 5 minutes with the CRON_SECRET.' })
-    else if (!h.offers.ok && /^Gmail is (not connected|connected send-only)/.test(h.offers.error ?? '') && h.gmail.connected && h.gmail.canRead) {
+    else if (!h.offers.ok && /^(Gmail is|Could not check Gmail|The saved Gmail login|Google no longer accepts)/.test(h.offers.error ?? '') && h.gmail.connected && h.gmail.canRead) {
       // That error was saved before Gmail was (re)connected; the next 5-minute check replaces it.
       add({ id: 'offers', level: 'amber', title: 'Mobile One offers: waiting for the next check', detail: 'Gmail is connected now. The last check ran before that and will be replaced within 5 minutes.' })
     } else if (!h.offers.ok) add({ id: 'offers', level: 'red', title: 'Mobile One offers could not be read', detail: h.offers.error ?? 'The last check failed.', fix: 'Open Offers to see why. Usually Gmail needs connecting again in Settings.' })
@@ -171,7 +171,8 @@ export function healthChecks(h: HealthInput): HealthCheck[] {
   if (pay) add(pay)
 
   // The alert channels themselves.
-  if (h.fridayEmail && h.gmail.configured && !h.gmail.connected) add({ id: 'gmail', level: 'amber', title: 'Friday email is not connected', detail: 'No weekly summary will be sent.', fix: 'Settings → Connect Gmail.' })
+  if (h.gmail.configured && !h.gmail.connected) add({ id: 'gmail', level: 'amber', title: 'Gmail is not working', detail: h.gmail.message ?? 'Offers cannot be read or sent.', fix: 'Settings → Gmail: follow the instruction above.' })
+  if (h.offersConfig?.length) add({ id: 'offers-config', level: 'amber', title: 'Offers settings look wrong', detail: h.offersConfig.join(' '), fix: 'Fix the variable named above in Vercel (paste only its value), then redeploy.' })
   if (!h.watchdogConfigured) add({ id: 'watchdog', level: 'amber', title: 'Outside monitor not set up', detail: 'Problems only show when you open the dashboard, and nobody notices if the daily check itself stops.', fix: 'Create a free check at healthchecks.io and add its ping URL in Vercel as HEALTHCHECK_URL.' })
 
   return out

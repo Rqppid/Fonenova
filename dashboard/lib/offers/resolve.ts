@@ -6,12 +6,17 @@
  */
 import { getJson, type Store } from '../store'
 import { ukTime } from '../format-uk'
+import { seedClients, type Client } from './clients'
+import { buildAnswerEmail, type AnswerOutcome, type NotifyEmail } from './notify-email'
+import { priceOffer, publicLines, type PublicLine } from './pricing'
 import { getPublicAnswer, type PublicAnswer } from './public-store'
 import type { Offer, OfferSend } from './types'
 
 export interface ResolveDeps {
   store: Store
   notify: (text: string, link?: { label: string; url: string }) => Promise<boolean>
+  /** Email the owner about an answer or expiry (best effort: a failure never stops the status update or Telegram). */
+  email?: (m: NotifyEmail) => Promise<unknown>
   getAnswer?: (hash: string) => Promise<PublicAnswer | null>
   now?: Date
   dashboardUrl?: string
@@ -33,6 +38,34 @@ async function update(store: Store, hash: string, fn: (o: Offer, s: OfferSend) =
     await store.set('offers', offers)
     return next
   })
+}
+
+/** The items at the sale prices the client saw, worked out from the locked offer. Null if it cannot be. */
+async function itemsFor(store: Store, o: Offer): Promise<PublicLine[] | null> {
+  try {
+    if (!o.pricing) return null
+    const clients = (await getJson<Client[]>(store, 'offers:clients')) ?? seedClients()
+    const client = clients.find((c) => c.id === o.pricing!.clientId)
+    if (!client) return null
+    const r = priceOffer(o.lines, client, { clientId: client.id, marginCents: o.pricing.marginCents, overrides: o.pricing.overrides, ackLow: o.pricing.ackLow })
+    return r.ok ? publicLines(o.lines, r) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Email the owner, after the status is saved and Telegram has been told. Wrapped so that nothing
+ * here can throw: a failed email is only noted in the offer's history.
+ */
+async function emailOwner(d: ResolveDeps, offer: Offer, send: OfferSend, outcome: AnswerOutcome): Promise<void> {
+  if (!d.email) return
+  try {
+    await d.email(buildAnswerEmail({ outcome, offer, send, lines: await itemsFor(d.store, offer), dashboardUrl: d.dashboardUrl }))
+  } catch {
+    const at = (d.now ?? new Date()).toISOString()
+    await update(d.store, send.tokenHash, (o) => ({ ...o, audit: log(o, at, 'Notification email to you was not sent (Telegram was)') })).catch(() => {})
+  }
 }
 
 const link = (d: ResolveDeps, o: Offer) => (d.dashboardUrl ? { label: 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
@@ -67,6 +100,7 @@ export async function applyAnswer(hash: string, d: ResolveDeps): Promise<{ chang
     ].join('\n'),
     link(d, offer),
   )
+  await emailOwner(d, offer, s, accepted ? 'accepted' : 'declined')
   return { changed: true }
 }
 
@@ -102,6 +136,7 @@ export async function sweepSends(d: ResolveDeps): Promise<{ answered: number; ex
         if (next && expired) {
           out.expired++
           await d.notify(`${s.test ? '[TEST] ' : ''}${s.clientName} did not answer the offer (${s.units} units, ${eur(s.totalCents)}) before it expired at ${ukTime(s.expiresAt)}.\nThe offer is unlocked: reprice it and send it to another client.`, link(d, next))
+          await emailOwner(d, next, { ...s, outcome: 'expired', resolvedAt: nowIso }, 'expired')
         }
       }
     }

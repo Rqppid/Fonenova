@@ -44,10 +44,10 @@ describe('watchdog', () => {
   })
 
   it('warns when the alert channels themselves are missing', () => {
-    const c = healthChecks(base({ watchdogConfigured: false, makeConfigured: false, fridayEmail: true, gmail: { configured: true, connected: false } }))
+    const c = healthChecks(base({ watchdogConfigured: false, makeConfigured: false, gmail: { configured: true, connected: false, message: 'Gmail is not connected. Press Connect Gmail.' } }))
     expect([level(c, 'watchdog'), level(c, 'make'), level(c, 'gmail')]).toEqual(['amber', 'amber', 'amber'])
-    // With the Friday email off, a missing Gmail is not a Friday-email problem (Offers reports it).
-    expect(level(healthChecks(base({ fridayEmail: false, gmail: { configured: true, connected: false } })), 'gmail')).toBeUndefined()
+    expect(c.find((x) => x.id === 'gmail')!.detail).toBe('Gmail is not connected. Press Connect Gmail.') // says what to do, not just "not working"
+    expect(level(healthChecks(base({ gmail: { configured: true, connected: true } })), 'gmail')).toBeUndefined()
   })
 
   it('writes a summary with reds first', () => {

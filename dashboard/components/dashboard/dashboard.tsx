@@ -32,7 +32,7 @@ import type { WeeklyEmailState } from '@/lib/weekly'
 import type { AskState } from '@/lib/ask/data'
 import type { HealthCheck } from '@/lib/health'
 import { DealChecker } from './deal-checker'
-import { AskCard, WatchdogCard, DraftsList, MakeCard, MarginVatCard, WeeklyEmailCard } from './automations'
+import { AskCard, WatchdogCard, DraftsList, MakeCard, MarginVatCard, GmailCard } from './automations'
 import { AskBar } from './ask-bar'
 import { CurrencyNote, CurrencySwitch } from './currency-switch'
 import { CashPositionPanel } from './cash-position'
@@ -348,7 +348,7 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
           </section>
           <WatchdogCard checks={health} ignored={settings.ignoredInvoiceNumbers} writable={overheadsWritable} />
           <MakeCard make={make} />
-          <WeeklyEmailCard state={weekly} notice={gmailNotice} />
+          <GmailCard state={weekly} notice={gmailNotice} />
           <AskCard state={askState} />
           <OverheadsPanel overheads={overheads} saved={overheadsSaved} loadError={overheadsError} writable={overheadsWritable} today={today} />
           <MarginVatCard enabled={settings.marginSchemeVat} writable={overheadsWritable} vatEurCents={marginVat} />

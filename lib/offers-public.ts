@@ -56,21 +56,38 @@ export function offerState(offer: PublicOffer, answer: PublicAnswer | null, now:
 
 type Cmd = (string | number)[]
 
+/**
+ * Set, and not obviously mistyped. A value pasted wrongly into Vercel (a whole ".env" block, quotes,
+ * spaces, a half address) counts as not set up, so visitors get the plain "not available" page.
+ */
 export function publicStoreConfigured(): boolean {
-  return !!(process.env.OFFERS_PUBLIC_REDIS_URL && process.env.OFFERS_PUBLIC_REDIS_TOKEN)
-}
-
-async function run(cmd: Cmd): Promise<unknown> {
   const url = process.env.OFFERS_PUBLIC_REDIS_URL
   const token = process.env.OFFERS_PUBLIC_REDIS_TOKEN
-  if (!url || !token) throw new Error('The offers store is not set up')
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify(cmd),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(8_000),
-  })
+  if (!url || !token) return false
+  const junk = (v: string) => /\s/.test(v) || /["'`]/.test(v) || /=(?!=*$)/.test(v)
+  if (junk(url) || junk(token) || /bearer|UPSTASH_REDIS|REST_URL|REST_TOKEN/i.test(token) || token.length < 20) return false
+  try {
+    return new URL(url).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/** Errors here are plain sentences: the text of an underlying error can contain the value it choked on, so it is never passed on. */
+async function run(cmd: Cmd): Promise<unknown> {
+  if (!publicStoreConfigured()) throw new Error('The offers store is not set up')
+  let res: Response
+  try {
+    res = await fetch(process.env.OFFERS_PUBLIC_REDIS_URL!, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${process.env.OFFERS_PUBLIC_REDIS_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(cmd),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    })
+  } catch {
+    throw new Error('The offers store could not be reached')
+  }
   if (!res.ok) throw new Error(`The offers store answered ${res.status}`)
   const body = (await res.json()) as { result?: unknown; error?: string }
   if (body.error) throw new Error('The offers store refused a command')

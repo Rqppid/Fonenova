@@ -5,6 +5,8 @@ import { OffersTabs } from '@/components/offers/offers-tabs'
 import { OffersView } from '@/components/offers/offers-view'
 import { loadClients } from '@/lib/offers/store'
 import { gmailConfig, gmailConnected } from '@/lib/gmail'
+import { webhookProblem } from '@/lib/offers/env-check'
+import { publicStoreProblem } from '@/lib/offers/public-store'
 import { telegramConfigured } from '@/lib/offers/telegram'
 import type { Offer, OffersStatus } from '@/lib/offers/types'
 import { currentUser } from '@/lib/session'
@@ -19,7 +21,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
   const [offers, status, gmail, params, clients] = await Promise.all([
     getJson<Offer[]>(store, 'offers'),
     getJson<OffersStatus>(store, 'offers:status'),
-    gmailConfig() ? gmailConnected(store).catch(() => ({ connected: false, email: null, canRead: false })) : Promise.resolve(null),
+    gmailConfig() ? gmailConnected(store) : Promise.resolve(null),
     searchParams,
     loadClients(),
   ])
@@ -29,7 +31,12 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
       <OffersTabs active="offers" />
       <OffersView
         clients={clients}
-        send={{ allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', publicStore: !!(process.env.OFFERS_PUBLIC_REDIS_URL && process.env.OFFERS_PUBLIC_REDIS_TOKEN), gmail: !!gmail?.connected }}
+        send={{
+          allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
+          storeProblem: publicStoreProblem(),
+          gmailProblem: !gmail ? 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).' : gmail.connected ? null : gmail.message,
+          webhookWarning: !process.env.OFFERS_WEBHOOK_TOKEN ? 'OFFERS_WEBHOOK_TOKEN is not set: you will hear of answers within 5 minutes instead of at once.' : webhookProblem(process.env.OFFERS_WEBHOOK_TOKEN),
+        }}
         offers={offers ?? []}
         status={status}
         setup={{ gmail, telegram: telegramConfigured(), schedule: !!process.env.CRON_SECRET }}

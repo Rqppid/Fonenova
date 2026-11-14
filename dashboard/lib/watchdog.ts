@@ -8,6 +8,7 @@
  */
 import { loadOneDriveState, loadSettings, loadXeroState } from './data-source'
 import { gmailConfig, gmailConnected } from './gmail'
+import { offersEnvProblems } from './offers/env-check'
 import { healthChecks, healthSummary, type HealthCheck } from './health'
 import { loadMakeStatus } from './make'
 import { getHealth as getPaymentsHealth } from './payments-source'
@@ -28,7 +29,7 @@ export async function loadHealth(sources: SourceStatus[], opts: { paymentsTimeou
     loadOneDriveState(),
     loadMakeStatus(),
     loadSettings(),
-    gmailConfig() ? gmailConnected().then((g) => ({ configured: true, connected: g.connected, canRead: g.canRead }), () => ({ configured: true, connected: false, canRead: false })) : Promise.resolve({ configured: false, connected: false }),
+    gmailConfig() ? gmailConnected().then((g) => ({ configured: true, connected: g.connected, canRead: g.canRead, message: g.message })) : Promise.resolve({ configured: false, connected: false }),
     getPaymentsHealth(opts.paymentsTimeoutMs),
     getJson<OffersStatus>(getStore(), 'offers:status').catch(() => null),
   ])
@@ -42,7 +43,7 @@ export async function loadHealth(sources: SourceStatus[], opts: { paymentsTimeou
     make,
     makeConfigured: makeConfigured(),
     gmail,
-    fridayEmail: settings.fridayEmail,
+    offersConfig: offersEnvProblems(process.env),
     watchdogConfigured: !!process.env.HEALTHCHECK_URL,
     ignoredInvoiceNumbers: settings.ignoredInvoiceNumbers,
     payments,

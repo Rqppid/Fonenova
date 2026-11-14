@@ -15,7 +15,7 @@ import { getJson, type Store } from '../store'
 import { buildOfferEmail, type OfferEmail } from './email'
 import { seedClients, type Client } from './clients'
 import { priceOffer, publicLines } from './pricing'
-import { deletePublicOffer, hashToken, newToken, OFFER_VALID_MS, publicStoreConfigured, putPublicOffer, getPublicAnswer, withdrawPublicOffer, type PublicOffer } from './public-store'
+import { deletePublicOffer, hashToken, newToken, OFFER_VALID_MS, publicStoreProblem, putPublicOffer, getPublicAnswer, withdrawPublicOffer, type PublicOffer } from './public-store'
 import type { Offer, OfferSend } from './types'
 
 export interface SendDeps {
@@ -48,7 +48,8 @@ async function mutate(store: Store, id: string, fn: (o: Offer) => Offer | { erro
 }
 
 export async function sendOffer(id: string, d: SendDeps): Promise<Result> {
-  if (!publicStoreConfigured()) return { ok: false, error: 'The public offers store is not set up yet (OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel).' }
+  const storeProblem = publicStoreProblem()
+  if (storeProblem) return { ok: false, error: storeProblem }
   const nowDate = d.now ?? new Date()
   const now = nowDate.toISOString()
   const token = (d.token ?? newToken)()
