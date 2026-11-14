@@ -451,7 +451,8 @@ describe('the Send panel', () => {
     expect(declined).toContain('too high &lt;b&gt;S25&lt;/b&gt;')
     expect(declined).toContain('Unlock to reprice')
     const accepted = render(h(SendPanel, { offer: offer({ status: 'accepted', sends: [send1({ outcome: 'accepted' })] }), clients: clients(), setup }))
-    expect(accepted).toContain('Nothing else happens for a test')
+    expect(accepted).toContain('accepted (test)')
+    expect(accepted).toContain('data-testid="after-acceptance"') // an offer accepted before this existed offers to start the follow-up work
     expect(accepted).not.toContain('Unlock')
     expect(render(h(SendPanel, { offer: offer({ status: 'expired', sends: [send1({ outcome: 'expired' })] }), clients: clients(), setup }))).toContain('did not answer before it expired')
   })

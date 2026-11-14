@@ -32,6 +32,7 @@ import type { WeeklyEmailState } from '@/lib/weekly'
 import type { AskState } from '@/lib/ask/data'
 import type { HealthCheck } from '@/lib/health'
 import { DealChecker } from './deal-checker'
+import { XeroWriteCard, type XeroWriteState } from './xero-write-card'
 import { AskCard, WatchdogCard, DraftsList, MakeCard, MarginVatCard, GmailCard } from './automations'
 import { AskBar } from './ask-bar'
 import { CurrencyNote, CurrencySwitch } from './currency-switch'
@@ -69,6 +70,8 @@ interface Props {
   askState: AskState
   health: HealthCheck[]
   gmailNotice: string | null
+  xeroWrite?: XeroWriteState
+  xeroWriteNotice?: string | null
 }
 
 export function Dashboard(props: Props) {
@@ -97,7 +100,7 @@ const TITLES: Record<Section, string> = {
   settings: 'Settings',
 }
 
-function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, overheadsError, overheadsWritable, xero, notice, expenses, expenseOverrides, expensesError, sources, oneDrive, oneDriveNotice, hosted, settings, make, weekly, gmailNotice, askState, health }: Props) {
+function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, overheadsError, overheadsWritable, xero, notice, expenses, expenseOverrides, expensesError, sources, oneDrive, oneDriveNotice, hosted, settings, make, weekly, gmailNotice, xeroWrite, xeroWriteNotice, askState, health }: Props) {
   const { fx } = useMoney()
   const [section, go] = useSection()
   // Reconcile against the untouched ledger; everything else uses Xero's live statuses where found.
@@ -349,6 +352,7 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
           <WatchdogCard checks={health} ignored={settings.ignoredInvoiceNumbers} writable={overheadsWritable} />
           <MakeCard make={make} />
           <GmailCard state={weekly} notice={gmailNotice} />
+          {xeroWrite && <XeroWriteCard state={xeroWrite} notice={xeroWriteNotice ?? null} />}
           <AskCard state={askState} />
           <OverheadsPanel overheads={overheads} saved={overheadsSaved} loadError={overheadsError} writable={overheadsWritable} today={today} />
           <MarginVatCard enabled={settings.marginSchemeVat} writable={overheadsWritable} vatEurCents={marginVat} />

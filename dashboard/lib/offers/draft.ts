@@ -126,3 +126,17 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
     return fail(e instanceof Error && e.message ? e.message.slice(0, 200) : 'Xero could not be reached', true)
   }
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The Settings form's values, checked before they are saved. */
+export function checkDraftSettings(body: unknown): { ok: true; value: DraftSettings } | { ok: false; error: string } {
+  const b = (body ?? {}) as Record<string, unknown>
+  const taxType = typeof b.taxType === 'string' ? b.taxType.trim().toUpperCase() : ''
+  if (!/^[A-Z0-9]{2,40}$/.test(taxType)) return { ok: false, error: 'The tax type is a Xero code such as NONE or ZERORATEDOUTPUT (letters and digits only).' }
+  const accountCode = typeof b.accountCode === 'string' ? b.accountCode.trim() : ''
+  if (!/^[A-Za-z0-9]{1,10}$/.test(accountCode)) return { ok: false, error: 'The sales account is the account code in Xero, such as 200.' }
+  const raw = typeof b.brandingThemeId === 'string' ? b.brandingThemeId.trim() : ''
+  if (raw && !UUID.test(raw)) return { ok: false, error: 'The branding theme id must look like a1b2c3d4-e5f6-7890-abcd-ef1234567890 (or be left empty).' }
+  return { ok: true, value: { taxType, accountCode, brandingThemeId: raw || null } }
+}
