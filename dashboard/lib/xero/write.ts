@@ -6,7 +6,7 @@
  */
 import 'server-only'
 import crypto from 'node:crypto'
-import { DuplicateInvoiceNumber, type DraftBody, type XeroApi, type XeroInvoiceRef } from '../offers/draft'
+import { DuplicateInvoiceNumber, parseXeroValidation, XeroRejected, type DraftBody, type XeroApi, type XeroInvoiceRef } from '../offers/draft'
 import { getJson, getStore, storeWritable, type Store } from '../store'
 
 const AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize'
@@ -143,12 +143,63 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       const live = rows.find((r) => r.Status !== 'VOIDED' && r.Status !== 'DELETED')
       return live ? toRef(live) : null
     },
+    async diagnose(body: DraftBody) {
+      const found: string[] = []
+      const get = async <T,>(path: string, what: string): Promise<T | null> => {
+        try {
+          const res = await call(path)
+          if (res.status === 404) return null
+          if (!res.ok) {
+            found.push(`Could not check ${what} (Xero answered ${res.status}). The write app may lack the settings or contacts permission.`)
+            return null
+          }
+          return (await res.json()) as T
+        } catch {
+          found.push(`Could not check ${what} (Xero could not be reached).`)
+          return null
+        }
+      }
+      const line = body.LineItems[0]
+      const cur = await get<{ Currencies?: { Code?: string }[] }>('/Currencies', 'the currency')
+      if (cur && !(cur.Currencies ?? []).some((c) => c.Code === body.CurrencyCode)) found.push(`Currency ${body.CurrencyCode} is not switched on in this organisation. In Xero: Settings, Currencies, Add currency, then try again.`)
+      const tax = await get<{ TaxRates?: { Name?: string; TaxType?: string; Status?: string; CanApplyToRevenue?: boolean }[] }>('/TaxRates', 'the tax type')
+      if (tax && line) {
+        const rates = tax.TaxRates ?? []
+        const t = rates.find((r) => r.TaxType === line.TaxType)
+        const usable = rates.filter((r) => r.Status === 'ACTIVE' && r.CanApplyToRevenue).slice(0, 8).map((r) => `${r.Name} (${r.TaxType})`).join(', ')
+        if (!t) found.push(`Tax type ${line.TaxType} does not exist in this organisation. Tax types usable on sales here: ${usable || 'none found'}.`)
+        else if (t.Status !== 'ACTIVE' || t.CanApplyToRevenue === false) found.push(`Tax type ${line.TaxType} cannot be used on sales in this organisation. Tax types usable on sales here: ${usable || 'none found'}.`)
+      }
+      if (line) {
+        const acc = await get<{ Accounts?: { Code?: string; Status?: string; Type?: string; Name?: string }[] }>(`/Accounts?where=${encodeURIComponent(`Code=="${line.AccountCode.replace(/["\\]/g, '')}"`)}`, 'the sales account')
+        const a = acc?.Accounts?.[0]
+        if (acc && !a) found.push(`Account code ${line.AccountCode} does not exist in this organisation.`)
+        else if (a && (a.Status !== 'ACTIVE' || !['REVENUE', 'SALES', 'OTHERINCOME'].includes(String(a.Type)))) found.push(`Account ${line.AccountCode} (${a.Name ?? 'unnamed'}) is ${a.Status === 'ACTIVE' ? `a ${a.Type} account, not a sales account` : 'archived'}. Pick a sales account code in Settings.`)
+      }
+      const contact = await get<{ Contacts?: { ContactStatus?: string }[] }>(`/Contacts/${encodeURIComponent(body.Contact.ContactID)}`, 'the contact')
+      if (contact === null && !found.some((f) => f.includes('the contact'))) found.push('The contact was not found in this organisation. The saved ContactID is from another organisation or was deleted: copy it again from the Demo Company contact.')
+      else if (contact?.Contacts?.[0]?.ContactStatus === 'ARCHIVED') found.push('The contact is archived in Xero. Restore it or use another contact.')
+      if (body.BrandingThemeID) {
+        const th = await get<{ BrandingThemes?: { BrandingThemeID?: string; Name?: string }[] }>('/BrandingThemes', 'the branding theme')
+        if (th && !(th.BrandingThemes ?? []).some((b) => b.BrandingThemeID?.toLowerCase() === body.BrandingThemeID!.toLowerCase())) {
+          found.push(`The saved branding theme id is not a theme in this organisation (the id in the editor page address is not always the API id). Themes here: ${(th.BrandingThemes ?? []).map((b) => `${b.Name} (${b.BrandingThemeID})`).join(', ') || 'none'}. Pick one in Settings.`)
+        }
+      }
+      if (found.length === 0) found.push('Checked the currency, tax type, account, contact and branding theme: all exist. The message from Xero above is the cause.')
+      return found
+    },
+    async brandingThemes() {
+      const res = await call('/BrandingThemes')
+      check(res, 'listing branding themes')
+      const rows = ((await res.json()) as { BrandingThemes?: { BrandingThemeID?: string; Name?: string }[] }).BrandingThemes ?? []
+      return rows.filter((r) => r.BrandingThemeID).map((r) => ({ id: String(r.BrandingThemeID), name: String(r.Name ?? '') }))
+    },
     async createDraft(body: DraftBody, idempotencyKey: string) {
       const res = await call('/Invoices', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey.slice(0, 128) }, body: JSON.stringify({ Invoices: [body] }) })
       if (res.status === 400) {
-        const text = await res.text().catch(() => '')
-        if (/unique|already (exists|been used|in use)/i.test(text)) throw new DuplicateInvoiceNumber()
-        throw new Error('Xero did not accept the draft invoice (400). Check the contact, account code and tax type in Settings.')
+        const { messages, field } = parseXeroValidation(await res.text().catch(() => ''))
+        if (messages.some((m) => /invoice ?number/i.test(m) && /unique|already/i.test(m))) throw new DuplicateInvoiceNumber()
+        throw new XeroRejected(messages, field)
       }
       check(res, 'creating the draft')
       const made = ((await res.json()) as { Invoices?: RawInvoice[] }).Invoices?.[0]

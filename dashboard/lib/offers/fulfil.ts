@@ -164,8 +164,10 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   if (!claimed?.fulfilment || claimed.fulfilment.draft.state !== 'working') return
   const f = claimed.fulfilment
   const finish = async (draft: Fulfilment['draft'], note: string) => mutate(d.store, id, (o) => (o.fulfilment ? { ...o, updatedAt: nowOf(d).toISOString(), fulfilment: { ...o.fulfilment, draft }, audit: log(o, nowOf(d).toISOString(), note) } : null))
-  const block = async (reason: string) => {
-    await finish({ ...f.draft, state: 'blocked', attempts: Math.max(0, f.draft.attempts - 1), reason }, `Draft invoice blocked: ${reason}`)
+  const block = async (reason: string, extra: { details?: string[]; field?: string } = {}) => {
+    await finish({ ...f.draft, state: 'blocked', attempts: Math.max(0, f.draft.attempts - 1), reason, details: extra.details, field: extra.field }, `Draft invoice blocked: ${reason}`)
+    // Tell the owner once per distinct reason (pressing Try again must not repeat the same message).
+    if (extra.details && f.draft.reason !== reason) await d.notify(`The draft invoice for ${f.orderRef} was refused by Xero.\n${reason}\nOpen the offer for the full detail.`, link(d, claimed))
   }
 
   const api = d.xero()
@@ -177,11 +179,11 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
 
   const r = await raiseDraft({ api, store: d.store, reference: f.orderRef, client, test: f.test, lines, settings: await loadDraftSettings(d.store), now: nowOf(d) })
   if (r.ok) {
-    await finish({ ...f.draft, state: 'done', invoiceId: r.id, invoiceNumber: r.number, org: r.org, at: nowOf(d).toISOString(), reason: undefined }, `${r.adopted ? 'Found the existing' : 'Created'} DRAFT invoice ${r.number} in Xero (${r.org}) for ${f.orderRef}`)
+    await finish({ ...f.draft, state: 'done', invoiceId: r.id, invoiceNumber: r.number, org: r.org, at: nowOf(d).toISOString(), reason: undefined, details: undefined, field: undefined }, `${r.adopted ? 'Found the existing' : 'Created'} DRAFT invoice ${r.number} in Xero (${r.org}) for ${f.orderRef}`)
     return
   }
-  if (!r.retry) return void (await block(r.error))
-  await finish({ ...f.draft, state: 'failed', reason: r.error }, `Draft invoice failed (try ${f.draft.attempts}): ${r.error}`)
+  if (!r.retry) return void (await block(r.error, { details: r.details, field: r.field }))
+  await finish({ ...f.draft, state: 'failed', reason: r.error, details: undefined, field: undefined }, `Draft invoice failed (try ${f.draft.attempts}): ${r.error}`)
   if (f.draft.attempts === ALERT_AT) await d.notify(`The draft invoice for ${f.orderRef} failed ${f.draft.attempts} times: ${r.error}\nIt keeps trying every 5 minutes.`, link(d, claimed))
 }
 
@@ -240,7 +242,7 @@ export async function retryFulfilment(offerId: string, d: FulfilDeps): Promise<v
     const f = cur.fulfilment
     if (!f) return null
     const reply = f.reply.state === 'failed' ? { ...f.reply, state: 'pending' as const, attempts: 0 } : f.reply
-    const draft = f.draft.state === 'failed' || f.draft.state === 'blocked' ? { ...f.draft, state: 'pending' as const, attempts: 0, reason: undefined } : f.draft
+    const draft = f.draft.state === 'failed' || f.draft.state === 'blocked' ? { ...f.draft, state: 'pending' as const, attempts: 0 } : f.draft
     return { ...cur, updatedAt: nowIso, fulfilment: { ...f, alerted: false, reply, draft }, audit: log(cur, nowIso, 'You asked for the steps after acceptance to be tried again') }
   })
   await runReply(offerId, d)

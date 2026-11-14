@@ -30,6 +30,16 @@ export function XeroWriteCard({ state, notice }: { state: XeroWriteState; notice
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState({ taxType: state.settings.taxType, accountCode: state.settings.accountCode, brandingThemeId: state.settings.brandingThemeId ?? '' })
   const [msg, setMsg] = useState<{ text: string; good: boolean } | null>(null)
+  const [themes, setThemes] = useState<{ id: string; name: string }[] | null>(null)
+  async function loadThemes() {
+    setBusy(true)
+    setMsg(null)
+    const res = await fetch('/api/offers/branding-themes').catch(() => null)
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string; themes?: { id: string; name: string }[] } | null
+    setBusy(false)
+    if (res?.ok && out?.ok && out.themes) setThemes(out.themes)
+    else setMsg({ text: out?.error ?? 'Could not load the themes. Check your connection and try again.', good: false })
+  }
   const dirty = form.taxType !== state.settings.taxType || form.accountCode !== state.settings.accountCode || form.brandingThemeId !== (state.settings.brandingThemeId ?? '')
   const button = 'inline-flex h-9 items-center rounded-md bg-navy px-3 text-[13px] font-medium text-white hover:bg-navy-2'
 
@@ -79,9 +89,21 @@ export function XeroWriteCard({ state, notice }: { state: XeroWriteState; notice
         <div className="grid gap-3 border-t border-line pt-3 sm:grid-cols-3">
           <label className="space-y-1 text-[12.5px] text-ink-2">Tax type on every line<input className={field} value={form.taxType} onChange={(e) => setForm({ ...form, taxType: e.target.value })} aria-label="Tax type" /></label>
           <label className="space-y-1 text-[12.5px] text-ink-2">Sales account code<input className={field} value={form.accountCode} onChange={(e) => setForm({ ...form, accountCode: e.target.value })} aria-label="Sales account code" /></label>
-          <label className="space-y-1 text-[12.5px] text-ink-2">Branding theme id (optional)<input className={field} value={form.brandingThemeId} onChange={(e) => setForm({ ...form, brandingThemeId: e.target.value })} aria-label="Branding theme id" placeholder="Margin scheme theme" /></label>
+          <div className="space-y-1 text-[12.5px] text-ink-2">
+            {themes ? (
+              <label className="block space-y-1">Branding theme
+                <select className={field} value={form.brandingThemeId} onChange={(e) => setForm({ ...form, brandingThemeId: e.target.value })} aria-label="Branding theme" data-testid="theme-select">
+                  <option value="">Xero's default theme</option>
+                  {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+            ) : (
+              <label className="block space-y-1">Branding theme id (optional)<input className={field} value={form.brandingThemeId} onChange={(e) => setForm({ ...form, brandingThemeId: e.target.value })} aria-label="Branding theme id" placeholder="Pick from Xero with Load themes" /></label>
+            )}
+            {state.connected && !themes && <button type="button" onClick={loadThemes} disabled={busy} className="inline-flex h-8 items-center rounded-md border border-line px-2.5 text-[12.5px] font-medium text-ink hover:bg-subtle disabled:opacity-50" data-testid="load-themes">Load themes from Xero</button>}
+          </div>
         </div>
-        <p className="text-[12.5px] text-ink-3">Check these against invoice 2026047 before the first real offer: the tax type and account must match how your sales are booked today. The branding theme is the one that says &quot;Sold under VAT Margin Scheme, ART 313&quot;.</p>
+        <p className="text-[12.5px] text-ink-3">Check these against invoice 2026047 before the first real offer: the tax type and account must match how your sales are booked today. The branding theme is the one that says &quot;Sold under VAT Margin Scheme, ART 313&quot;: load the list from Xero and pick it by name (the id in the theme editor&apos;s page address is not always the id the API needs).</p>
         {msg && <p role="status" className={cn('rounded-md px-3 py-2 text-[13px]', msg.good ? 'bg-gain-soft text-gain' : 'bg-warn-soft text-warn')}>{msg.text}</p>}
         <button type="button" onClick={save} disabled={busy || !dirty} className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink hover:bg-subtle disabled:opacity-50">{busy ? 'Saving…' : 'Save settings'}</button>
       </div>
