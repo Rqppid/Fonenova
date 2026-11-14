@@ -13,7 +13,7 @@ outside `public/` and are not served by the site.
 
 Everything is rendered at 2x so it stays sharp on a retina display, which is
 where most of these are actually seen. Aspect ratios are exact, so no platform
-crops them on upload — only the pixel count is doubled.
+crops them on upload: only the pixel count is doubled.
 
 The profile picture that sits alongside these is the existing icon tile:
 `public/icon-128.png` for most uses, `public/apple-icon.png` where something
@@ -24,13 +24,14 @@ larger is wanted.
 Nothing here was redrawn by eye. If the brand changes, these are regenerated
 from the same sources rather than edited:
 
-- **The tile** is `public/icon.svg` verbatim — the same rounded-rect handset
+- **The tile** is `public/icon.svg` verbatim: the same rounded-rect handset
   knocked out of a brand-blue tile with the spark punched back through.
-- **The wordmark** is the same Archivo outlines the site renders, from
+- **The wordmark** is the same Inter ExtraBold outlines the site renders, from
   `components/logo-paths.ts`: `FONE_PATH` in `#ffffff`, `NOVA_PATH` in
   `#0099f2`, `SUBLINE_PATH` in white at 50% opacity, positioned by that file's
   own `FULL` box and `subDx` offset. Not a font lookup, so it cannot drift from
-  the site lockup.
+  the site lockup. (It was Archivo until the owner asked for the headline's
+  typeface.)
 - **The type** is Inter and Space Grotesk, the two faces `app/layout.tsx`
   already loads. The tagline is Space Grotesk 500, matching the site's headings;
   the detail row is Inter.
@@ -48,7 +49,7 @@ The field is dark rather than solid brand blue on purpose. A blue field would
 have forced either a blue tile on blue, or dropping the icon; dark lets the tile
 carry the colour and reads better for trade buyers.
 
-## Safe zones — read this before redesigning
+## Safe zones: read this before redesigning
 
 Every one of these platforms drops something on top of the banner, always at the
 bottom-left:
@@ -68,8 +69,26 @@ company's own logo lands on top of a word.
 
 ## Regenerating
 
-The generator is **not** committed. It reads `components/logo-paths.ts`,
-`public/icon.svg` and the Inter / Space Grotesk `.woff2` files that `next build`
-writes to `.next/static/media`, builds one HTML file per size, and screenshots
-each in headless Chromium at 2x device scale. Ask and it can be added here so
-the set is reproducible without rebuilding it from scratch.
+The generator is committed in `brand/social/build/`, so the whole set is reproducible:
+
+```
+pnpm build                                        # leaves Inter and Space Grotesk in .next/static/media
+pip install fonttools brotli                      # to identify those font files
+python3 brand/social/build/build.py               # the five banners, into this folder
+python3 brand/social/build/build.py --og          # ...and public/images/og-cover.jpg
+```
+
+It needs Node with Playwright and a Chromium (set `PLAYWRIGHT_MODULE` and `CHROME_PATH` if
+`render.mjs` cannot find them). It reads `components/logo-paths.ts`, `public/icon.svg` and the
+two fonts, writes one HTML page per size to a temporary folder, screenshots each, and fails
+the run if any content leaves the frame.
+
+If the logo font ever changes, regenerate the outlines first
+(`python3 brand/build-logo-paths.py`), then run this, and the banners follow automatically.
+
+Two things the repo cannot do for you:
+
+- **The platforms keep your old uploads.** LinkedIn, X and Facebook show whatever banner was
+  last uploaded until you upload the new file yourself.
+- **Shared links keep their cached preview** until the platform re-reads the page. Use the
+  Facebook Sharing Debugger and LinkedIn's Post Inspector to refresh a link's card.

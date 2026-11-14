@@ -4,8 +4,9 @@ import { CAP_HEIGHT, FONE_PATH, FULL, NOVA_PATH, SUBLINE_PATH, WORDMARK } from "
  * Brand lockup, drawn inline rather than shipped as a bitmap or a webfont.
  *
  * The mark is a handset in brand blue holding a four-point nova spark. The wordmark is
- * Archivo, cut to outlines: eight characters and a subline do not justify loading a
- * typeface, and outlines cannot reflow or shift if a font request is slow or fails.
+ * Inter ExtraBold, the site's own headline face, cut to outlines: eight characters and a
+ * subline do not justify loading a typeface, and outlines cannot reflow or shift if a
+ * font request is slow or fails. Regenerate them with brand/build-logo-paths.py.
  *
  * Both fills read from the theme tokens, so the whole lockup inverts with the page
  * instead of needing a second dark-mode asset.
@@ -43,7 +44,10 @@ export function Logo({ className = "", withSubline = true }: LogoProps) {
         viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`}
         role="img"
         aria-label={withSubline ? "FoneNova, wholesale distribution" : "FoneNova"}
-        className="w-auto shrink-0 text-foreground"
+        // overflow-visible: an inline SVG clips to its box by default, and the box ends exactly at
+        // the subline's lowest pixel, so at fractional positions the last row of the tiny
+        // subline was being shaved off. The box is only here for layout, so let ink spill.
+        className="w-auto shrink-0 overflow-visible text-foreground"
         style={{ height: `${((box.h / CAP_HEIGHT) * CAP_EM).toFixed(4)}em` }}
       >
         {/* Centred under the subline when it is present, which is wider than neither run
