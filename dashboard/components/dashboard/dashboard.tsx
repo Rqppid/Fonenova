@@ -106,7 +106,7 @@ function DashboardBody({ ledger: rawLedger, today, overheads, overheadsSaved, ov
   // Reconcile against the untouched ledger; everything else uses Xero's live statuses where found.
   const checks = useMemo(() => reconcileLedger(rawLedger), [rawLedger])
   // Ledger orders (with Xero's live status), plus orders from confirmed Xero invoice and bill pairs,
-  // plus the live Xero checks. The same function feeds the Friday email and the AI bar.
+  // plus the live Xero checks. The same function feeds the AI bar.
   const merged = useMemo(() => liveView(rawLedger, xero.snapshot, xero.pairs, today), [rawLedger, xero.snapshot, xero.pairs, today])
   const ledger = merged.ledger
   const matching = merged.matching

@@ -28,7 +28,6 @@ export type StoreKey =
   | 'settings'
   | 'onedrive:tokens'
   | 'gmail:tokens'
-  | 'digest:last'
   | 'ai:usage'
   | 'sync:status'
   | 'meta:ledger'
@@ -75,7 +74,6 @@ const FILES: Record<StoreKey, string> = {
   settings: 'settings.json',
   'onedrive:tokens': 'onedrive/tokens.json',
   'gmail:tokens': 'gmail/tokens.json',
-  'digest:last': 'digest-last.json',
   'ai:usage': 'ai-usage.json',
   'sync:status': 'sync-status.json',
   'meta:ledger': 'generated/ledger.meta.json',

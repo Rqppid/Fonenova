@@ -233,7 +233,7 @@ describe('watchdog', () => {
 })
 
 describe('the Gmail card', () => {
-  const state = { configured: true, connected: true, enabled: false, canRead: true, state: 'connected' as const, message: null as string | null, from: 'owner@example.test', to: 'owner@example.test', last: null }
+  const state = { configured: true, connected: true, canRead: true, state: 'connected' as const, message: null as string | null, from: 'owner@example.test', to: 'owner@example.test' }
   const draw = async (s: typeof state | Record<string, unknown>) => {
     const { GmailCard } = await import('@/components/dashboard/automations')
     return renderToString(h(GmailCard, { state: s as never, notice: null })).replace(/<!-- -->/g, '')
@@ -266,24 +266,22 @@ describe('the Gmail card', () => {
   })
 })
 
-describe('the Friday email switch', () => {
-  it('is off by default, so connecting Gmail for offers does not start it, and the cron only sends when on', async () => {
+describe('the Friday cash email cannot send at all', () => {
+  it('has no route, no sender, and a saved "on" setting from before is ignored', async () => {
     const { getStore } = await import('@/lib/store')
-    const { loadSettings, saveSettings } = await import('@/lib/data-source')
-    const { loadWeeklyEmailState } = await import('@/lib/weekly')
+    const { loadSettings } = await import('@/lib/data-source')
+    const weekly = await import('@/lib/weekly')
     Object.assign(process.env, { GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret' })
     await getStore().set('gmail:tokens', { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3_600_000, email: 'owner@example.test', scope: 'openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly' })
-    expect((await loadSettings()).fridayEmail).toBe(false)
-    expect(await loadWeeklyEmailState()).toMatchObject({ connected: true, enabled: false, canRead: true })
-    const sent = vi.fn(async () => Response.json({ id: 'm' }))
-    vi.stubGlobal('fetch', sent)
-    const { GET } = await import('@/app/api/cron/digest/route')
-    const call = () => GET(new Request('https://dashboard.example.test/api/cron/digest', { headers: { authorization: 'Bearer cron-secret-0123456789' } }))
-    const off = await call()
-    expect([off.status, await off.json()]).toEqual([200, { ok: true, message: 'switched off' }])
-    expect(sent).not.toHaveBeenCalled()
-    expect(await getStore().get('digest:last')).toEqual({ kind: 'missing' })
-    await saveSettings({ ...(await loadSettings()), fridayEmail: true })
-    expect(await loadWeeklyEmailState()).toMatchObject({ enabled: true })
+    // An old saved settings file that had the switch on.
+    await getStore().set('settings', { marginSchemeVat: false, ignoredInvoiceNumbers: [], fridayEmail: true })
+    expect(await loadSettings()).toEqual({ marginSchemeVat: false, ignoredInvoiceNumbers: [] })
+    expect(await weekly.loadWeeklyEmailState()).toEqual({ configured: true, connected: true, canRead: true, state: 'connected', message: null, from: 'owner@example.test', to: expect.any(String) })
+    expect(Object.keys(weekly)).toEqual(['loadWeeklyEmailState']) // no sender is exported any more
+    const fsx = await import('node:fs')
+    const pathx = await import('node:path')
+    for (const f of ['app/api/cron/digest/route.ts', 'app/api/digest/route.ts', 'lib/digest.ts']) expect(fsx.existsSync(pathx.join(process.cwd(), f)), f).toBe(false)
+    const vercel = JSON.parse(fsx.readFileSync(pathx.join(process.cwd(), 'vercel.json'), 'utf8')) as { crons: { path: string }[] }
+    expect(vercel.crons.map((c) => c.path)).toEqual(['/api/cron/sync'])
   })
 })

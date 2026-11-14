@@ -20,7 +20,7 @@ import type { SourceStatus } from './sync-core'
 const makeConfigured = () => !!(process.env.MAKE_API_TOKEN && process.env.MAKE_SCENARIOS)
 
 /**
- * `paymentsTimeoutMs`: the daily job and the Friday email wait the full 7 s for the payments
+ * `paymentsTimeoutMs`: the daily job waits the full 7 s for the payments
  * service; the dashboard page passes a shorter limit so a hung service cannot hold the page up.
  */
 export async function loadHealth(sources: SourceStatus[], opts: { paymentsTimeoutMs?: number } = {}): Promise<HealthCheck[]> {

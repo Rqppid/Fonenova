@@ -1,5 +1,5 @@
 /**
- * Gmail connection: sends the Friday cash email, and reads Mobile One's offers (lib/offers).
+ * Gmail connection: sends the offer and notification emails, and reads Mobile One's offers (lib/offers).
  *
  * Google sign-in with the dashboard's own OAuth client (GOOGLE_CLIENT_ID / SECRET), auth code
  * with PKCE. A new connection asks for gmail.send and gmail.readonly (read, never change or
@@ -26,7 +26,7 @@ export interface GmailConfig {
   clientSecret: string
   redirectUri: string
   allowedEmail: string | null
-  /** Who the Friday email goes to. */
+  /** The dashboard's own address: where notification emails go. */
   to: string
 }
 
@@ -110,7 +110,7 @@ export function startGmailAuth(c: GmailConfig): { url: string; state: string; ve
     state,
     code_challenge: b64url(crypto.createHash('sha256').update(verifier).digest()),
     code_challenge_method: 'S256',
-    access_type: 'offline', // a refresh token, so Friday's email sends with nobody signed in
+    access_type: 'offline', // a refresh token, so emails send with nobody signed in
     prompt: 'consent', // Google only returns the refresh token on a consent screen
     ...(c.allowedEmail ? { login_hint: c.allowedEmail } : {}),
   })

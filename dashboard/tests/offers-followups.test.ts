@@ -327,13 +327,10 @@ describe('telling the owner by email as well as Telegram', () => {
 })
 
 describe('the Friday cash email is gone', () => {
-  it('has no scheduled job and no wording on the card, and the route still refuses', async () => {
+  it('has no scheduled job, no wording on the card, and no route or sender left', async () => {
     const vercel = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8')) as { crons: { path: string }[] }
     expect(vercel.crons.map((c) => c.path)).toEqual(['/api/cron/sync'])
-    process.env.CRON_SECRET = 'cron-secret-0123456789'
-    const { GET } = await import('@/app/api/cron/digest/route')
-    const r = await GET(new Request('https://dashboard.example.test/api/cron/digest', { headers: { authorization: 'Bearer cron-secret-0123456789' } }))
-    expect(await r.json()).toEqual({ ok: true, message: 'switched off' })
+    for (const f of ['app/api/cron/digest/route.ts', 'app/api/digest/route.ts', 'lib/digest.ts']) expect(fs.existsSync(path.join(process.cwd(), f)), f).toBe(false)
     const src = fs.readFileSync(path.join(process.cwd(), 'components/dashboard/automations.tsx'), 'utf8')
     const card = src.slice(src.indexOf('export function GmailCard'), src.indexOf('/** The AI bar'))
     for (const w of ['Friday', 'weekly', 'cash email']) expect(card, w).not.toContain(w)
