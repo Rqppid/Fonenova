@@ -11,6 +11,8 @@ export interface Client {
   name: string
   /** Xero's ContactID. Invoices use it, never the name. Optional until invoices are raised from Quay Pilot. */
   xeroContactId: string | null
+  /** A test client only: its contact in the LIVE Xero organisation. Without it a test offer can only go to the Demo Company. */
+  liveTestContactId?: string | null
   offerEmails: string[]
   invoiceEmails: string[]
   margin: MarginRule
@@ -85,6 +87,9 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     if (out.some((c) => c.id === id || c.name.toLowerCase() === name.toLowerCase())) return { ok: false, error: `${who}: appears twice` }
     const contact = b.xeroContactId === null || b.xeroContactId === undefined || b.xeroContactId === '' ? null : String(b.xeroContactId).trim()
     if (contact !== null && !UUID.test(contact)) return { ok: false, error: `${who}: the Xero ContactID must look like a1b2c3d4-e5f6-7890-abcd-ef1234567890` }
+    const liveRaw = b.liveTestContactId === null || b.liveTestContactId === undefined || b.liveTestContactId === '' ? null : String(b.liveTestContactId).trim()
+    if (liveRaw !== null && !UUID.test(liveRaw)) return { ok: false, error: `${who}: the live test contact id must look like a1b2c3d4-e5f6-7890-abcd-ef1234567890` }
+    if (liveRaw !== null && b.test !== true) return { ok: false, error: `${who}: a live test contact belongs to a test client only` }
     const offer = emails(b.offerEmails ?? [], 'offer emails', who)
     if (!offer.ok) return offer
     const invoice = emails(b.invoiceEmails ?? [], 'invoice emails', who)
@@ -108,7 +113,7 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     if (b.test !== true && !termsConfirmed && (!was || was.test)) return { ok: false, error: `${who}: choose the payment terms (for example 7 or 14 days) before this client can be a real client` }
     if (b.autoApprove === true) return { ok: false, error: `${who}: auto-approve arrives with the approve step; it stays off for now` }
     if (b.folder !== 'wave' && b.folder !== 'telecom' && b.folder !== 'other') return { ok: false, error: `${who}: choose a folder` }
-    out.push({ id, name, xeroContactId: contact, offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, folder: b.folder, test: b.test === true })
+    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, folder: b.folder, test: b.test === true })
   }
   return { ok: true, value: out }
 }

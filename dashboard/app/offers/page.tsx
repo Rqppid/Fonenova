@@ -7,6 +7,7 @@ import { loadClients } from '@/lib/offers/store'
 import { gmailConfig, gmailConnected } from '@/lib/gmail'
 import { envValue, webhookProblem } from '@/lib/offers/env-check'
 import { liveXeroReady } from '@/lib/xero/live-gate'
+import { xeroWriteStatus } from '@/lib/xero/write'
 import { publicStoreProblem } from '@/lib/offers/public-store'
 import { telegramConfigured } from '@/lib/offers/telegram'
 import type { Offer, OffersStatus } from '@/lib/offers/types'
@@ -31,6 +32,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
       <TopBar title="Offers" subtitle="Mobile One's offers, read from your email. Check each one before it is priced for a client." status={null} />
       <OffersTabs active="offers" />
       <OffersView
+        liveTarget={await xeroWriteStatus(store).then((s) => (s.connected && s.isDemo === false ? s.orgName : null))}
         clients={clients}
         send={{
           allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
