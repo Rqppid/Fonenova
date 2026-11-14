@@ -30,7 +30,7 @@ interface Setup {
   schedule: boolean
 }
 
-export function OffersView({ offers, status, setup, selected, clients, send }: { offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null; clients: Client[]; send: SendSetup }) {
+export function OffersView({ offers, status, setup, selected, clients, send, liveTarget = null }: { /** The live Xero organisation drafts go to, if that is where they go: shown as a red banner. */ liveTarget?: string | null; offers: Offer[]; status: OffersStatus | null; setup: Setup; selected: string | null; clients: Client[]; send: SendSetup }) {
   const [openId, setOpenId] = useState<string | null>(selected ?? offers.find((o) => o.status === 'needs_review')?.id ?? null)
   const [showDismissed, setShowDismissed] = useState(false)
   const router = useRouter()
@@ -52,6 +52,7 @@ export function OffersView({ offers, status, setup, selected, clients, send }: {
   const waiting = offers.filter((o) => o.status === 'needs_review').length
   return (
     <div className="space-y-4">
+      {liveTarget && <p role="alert" className="rounded-lg bg-loss px-4 py-2.5 text-[14px] font-semibold text-white" data-testid="live-banner">LIVE: drafts go to {liveTarget}</p>}
       <SetupNotes setup={setup} status={status} />
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <section aria-labelledby="offers-list" className="rounded-lg border border-line bg-surface">

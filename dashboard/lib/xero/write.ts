@@ -33,17 +33,51 @@ export function xeroWriteConfig(): XeroWriteConfig | null {
 
 export const xeroWriteAvailable = () => storeWritable()
 
-interface Tokens { accessToken: string; refreshToken: string; expiresAt: number; tenantId: string; tenantName: string; isDemo: boolean }
+/** An organisation the write app is connected to. */
+export interface XeroOrg { tenantId: string; name: string; isDemo: boolean }
 
-export interface XeroWriteStatus { configured: boolean; connected: boolean; orgName: string | null; isDemo: boolean | null }
+interface Tokens {
+  accessToken: string
+  refreshToken: string
+  expiresAt: number
+  /** The organisation drafts go to. Null until one is chosen: live is never picked by default. */
+  tenantId: string | null
+  tenantName: string | null
+  isDemo: boolean | null
+  /** Every organisation this login reaches (absent on a login saved before this list existed: just the selected one). */
+  orgs?: XeroOrg[]
+  /** The organisation(s) the user chose in the latest consent flow, as Xero reported them. */
+  chosenTenantIds?: string[]
+}
+
+const orgsOf = (t: Tokens): XeroOrg[] => t.orgs ?? (t.tenantId ? [{ tenantId: t.tenantId, name: t.tenantName ?? '', isDemo: t.isDemo === true }] : [])
+
+export interface XeroWriteStatus {
+  configured: boolean
+  connected: boolean
+  /** The organisation drafts go to (null until one is chosen). */
+  orgName: string | null
+  isDemo: boolean | null
+  selectedTenantId: string | null
+  /** Every connected organisation, with which one drafts go to and which one was chosen in the latest consent. */
+  orgs: { tenantId: string; name: string; isDemo: boolean; selected: boolean; justConnected: boolean }[]
+}
 
 export async function xeroWriteStatus(store: Store = getStore()): Promise<XeroWriteStatus> {
   const configured = !!xeroWriteConfig()
   try {
     const t = await getJson<Tokens>(store, 'xero-write:tokens')
-    return { configured, connected: !!t, orgName: t?.tenantName ?? null, isDemo: t ? t.isDemo : null }
+    if (!t) return { configured, connected: false, orgName: null, isDemo: null, selectedTenantId: null, orgs: [] }
+    return {
+      configured,
+      connected: true,
+      orgName: t.tenantName ?? null,
+      isDemo: t.tenantId ? t.isDemo : null,
+      selectedTenantId: t.tenantId ?? null,
+      orgs: orgsOf(t).map((o) => ({ ...o, selected: o.tenantId === t.tenantId, justConnected: (t.chosenTenantIds ?? []).includes(o.tenantId) })),
+    }
   } catch {
-    return { configured, connected: false, orgName: null, isDemo: null }
+    return { configured, connected: false, orgName: null, isDemo: null, selectedTenantId: null, orgs: [] }
   }
 }
 
@@ -92,16 +126,103 @@ async function organisationOf(accessToken: string, tenantId: string): Promise<{ 
   return { name: String(o.Name ?? ''), isDemo: o.IsDemoCompany === true }
 }
 
-export async function finishXeroWriteAuth(c: XeroWriteConfig, code: string, verifier: string): Promise<{ name: string; isDemo: boolean }> {
+/** The claims inside Xero's access token (a JWT we just received from Xero's token endpoint). Read only, never trusted for anything but the auth event id. */
+function jwtClaims(token: string): Record<string, unknown> {
+  try {
+    return JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+interface Connection { id?: string; authEventId?: string; tenantId: string; tenantName?: string; tenantType?: string; createdDateUtc?: string; updatedDateUtc?: string }
+
+async function listConnections(accessToken: string): Promise<Connection[]> {
+  const res = await fetch(CONNECTIONS_URL, { headers: { authorization: `Bearer ${accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(20_000) })
+  if (!res.ok) throw new Error(`Could not list Xero organisations (${res.status})`)
+  const list = (await res.json()) as Connection[]
+  const orgs = list.filter((x) => x.tenantType === 'ORGANISATION')
+  return orgs.length ? orgs : list
+}
+
+async function describeOrgs(accessToken: string, conns: Connection[]): Promise<XeroOrg[]> {
+  return Promise.all(conns.map(async (c) => {
+    const info = await organisationOf(accessToken, c.tenantId)
+    return { tenantId: c.tenantId, name: info.name || c.tenantName || '', isDemo: info.isDemo }
+  }))
+}
+
+export interface XeroWriteFinish {
+  /** What the user chose in this consent flow, as Xero reports it (the connections that share this flow's authEventId; else the newest). */
+  chosen: XeroOrg[]
+  /** The organisation drafts go to after this sign-in: the one already selected, or the chosen one if it is a demo. Never a live one by itself. */
+  selected: XeroOrg | null
+  orgs: XeroOrg[]
+}
+
+/**
+ * Finish the consent. Every organisation the login reaches is recorded, and the organisation(s) chosen in THIS
+ * flow are identified from Xero's own authEventId (not "the first in the list"). Which one drafts go to is a
+ * separate matter: an organisation already selected stays selected, a demo chosen on a fresh connection is
+ * selected, and a live organisation is NEVER selected by consent alone: that is the explicit "Use ... (live)" step.
+ */
+export async function finishXeroWriteAuth(c: XeroWriteConfig, code: string, verifier: string, store: Store = getStore()): Promise<XeroWriteFinish> {
   const t = await tokenRequest({ grant_type: 'authorization_code', client_id: c.clientId, code, redirect_uri: c.redirectUri, code_verifier: verifier })
-  const conns = await fetch(CONNECTIONS_URL, { headers: { authorization: `Bearer ${t.access_token}` }, cache: 'no-store', signal: AbortSignal.timeout(20_000) })
-  if (!conns.ok) throw new Error(`Could not list Xero organisations (${conns.status})`)
-  const list = (await conns.json()) as { tenantId: string; tenantName: string; tenantType: string }[]
-  const org = list.find((x) => x.tenantType === 'ORGANISATION') ?? list[0]
-  if (!org) throw new Error('This Xero login has no organisation connected')
-  const info = await organisationOf(t.access_token, org.tenantId)
-  await getStore().set('xero-write:tokens', { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000, tenantId: org.tenantId, tenantName: info.name || org.tenantName, isDemo: info.isDemo } satisfies Tokens)
-  return info
+  const conns = await listConnections(t.access_token)
+  if (conns.length === 0) throw new Error('This Xero login has no organisation connected')
+  const orgs = await describeOrgs(t.access_token, conns)
+
+  const flow = typeof jwtClaims(t.access_token).authentication_event_id === 'string' ? (jwtClaims(t.access_token).authentication_event_id as string) : null
+  let chosenConns = flow ? conns.filter((x) => x.authEventId === flow) : []
+  if (chosenConns.length === 0) {
+    const stamp = (x: Connection) => Date.parse(x.updatedDateUtc ?? x.createdDateUtc ?? '') || 0
+    chosenConns = [[...conns].sort((a, b) => stamp(b) - stamp(a))[0]]
+  }
+  const chosen = orgs.filter((o) => chosenConns.some((x) => x.tenantId === o.tenantId))
+
+  const prev = await getJson<Tokens>(store, 'xero-write:tokens').catch(() => null)
+  const kept = prev?.tenantId ? orgs.find((o) => o.tenantId === prev.tenantId) : undefined
+  const selected = kept ?? (chosen.length === 1 && chosen[0].isDemo ? chosen[0] : null)
+  await store.set('xero-write:tokens', {
+    accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000,
+    tenantId: selected?.tenantId ?? null, tenantName: selected?.name ?? null, isDemo: selected ? selected.isDemo : null,
+    orgs, chosenTenantIds: chosen.map((o) => o.tenantId),
+  } satisfies Tokens)
+  return { chosen, selected, orgs }
+}
+
+/** Re-list the organisations this login reaches (after connecting another one in Xero). Keeps the selection if it is still connected. */
+export async function refreshXeroWriteOrgs(store: Store = getStore()): Promise<XeroWriteStatus> {
+  const c = xeroWriteConfig()
+  if (!c) throw new Error('The Xero write app is not set up')
+  const t = await validTokens(c, store)
+  const orgs = await describeOrgs(t.accessToken, await listConnections(t.accessToken))
+  const keep = t.tenantId ? orgs.find((o) => o.tenantId === t.tenantId) : undefined
+  await store.set('xero-write:tokens', { ...t, orgs, tenantId: keep?.tenantId ?? null, tenantName: keep?.name ?? null, isDemo: keep ? keep.isDemo : null })
+  return xeroWriteStatus(store)
+}
+
+export type SelectResult = { ok: true; org: XeroOrg } | { ok: false; error: string }
+
+/**
+ * Choose which organisation drafts go to. Always an explicit act. A live organisation needs `confirmLive`
+ * on top (the Settings card asks for a separate tick), and the organisation must still be connected in Xero.
+ */
+export async function selectXeroWriteOrg(tenantId: string, opts: { confirmLive?: boolean } = {}, store: Store = getStore()): Promise<SelectResult> {
+  const c = xeroWriteConfig()
+  if (!c) return { ok: false, error: 'The Xero write app is not set up' }
+  try {
+    const t = await validTokens(c, store)
+    const orgs = await describeOrgs(t.accessToken, await listConnections(t.accessToken))
+    const org = orgs.find((o) => o.tenantId === tenantId)
+    if (!org) return { ok: false, error: 'That organisation is not connected to the Xero write app (any more). Connect it again, then choose it.' }
+    if (!org.isDemo && opts.confirmLive !== true) return { ok: false, error: `Choosing ${org.name} (live) needs its own confirmation: tick the box that says drafts will be created in the live organisation.` }
+    await store.set('xero-write:tokens', { ...t, orgs, tenantId: org.tenantId, tenantName: org.name, isDemo: org.isDemo })
+    xeroLog({ event: 'xero-write-selected', tenant: short(org.tenantId), demo: org.isDemo })
+    return { ok: true, org }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message.slice(0, 200) : 'Xero could not be reached' }
+  }
 }
 
 async function validTokens(c: XeroWriteConfig, store: Store): Promise<Tokens> {
@@ -123,8 +244,13 @@ const toRef = (i: RawInvoice): XeroInvoiceRef => ({ id: String(i.InvoiceID ?? ''
 export function xeroWriteApi(store: Store = getStore()): XeroApi {
   const c = xeroWriteConfig()
   if (!c) throw new Error('The Xero write app is not set up (XERO_WRITE_CLIENT_ID is missing)')
+  // The organisation this run is working in, fixed the first time it is looked at: if the selection is changed
+  // while a draft is being made, every later request refuses instead of writing to a different organisation.
+  let locked: string | null = null
   const call = async (path: string, init: RequestInit = {}) => {
     const t = await validTokens(c, store)
+    if (!t.tenantId) throw new Error('No Xero organisation is chosen for drafts. Choose one on the Settings card (Xero draft invoices).')
+    if (locked && t.tenantId !== locked) throw new Error('The Xero organisation for drafts was changed while this draft was being made. Nothing was created; try again.')
     const headers = new Headers(init.headers)
     headers.set('authorization', `Bearer ${t.accessToken}`)
     headers.set('xero-tenant-id', t.tenantId)
@@ -135,7 +261,11 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
     return res
   }
   /** Where a request really goes: the one tenant header comes from the saved login, for every call. */
-  const tenant = async () => (await validTokens(c, store)).tenantId
+  const tenant = async () => {
+    const id = (await validTokens(c, store)).tenantId
+    if (!id) throw new Error('No Xero organisation is chosen for drafts. Choose one on the Settings card (Xero draft invoices).')
+    return id
+  }
   const check = (res: Response, what: string) => {
     if (res.ok) return
     if (res.status === 401 || res.status === 403) throw new Error(`Xero refused ${what} (${res.status}). Reconnect the Xero write connection in Settings.`)
@@ -144,12 +274,22 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
   }
   // Live, not remembered, and through the same call() as every other request, so the guard looks
   // at exactly the tenant the draft is sent to.
-  const organisation = async () => {
+  // The organisation as Xero describes it, for the tenant the request carries.
+  const organisationRaw = async () => {
     const res = await call('/Organisation')
     if (!res.ok) throw new Error(`Xero would not describe the organisation (${res.status}). The write app may be missing the accounting.settings.read permission.`)
     const o = ((await res.json()) as { Organisations?: { OrganisationID?: string; Name?: string; IsDemoCompany?: boolean }[] }).Organisations?.[0]
     if (!o) throw new Error('Xero returned no organisation')
     return { name: String(o.Name ?? ''), isDemo: o.IsDemoCompany === true, ...(o.OrganisationID ? { id: o.OrganisationID } : {}) }
+  }
+  // The guard every draft starts with: the organisation Xero reports must be the selected tenant, and from here on
+  // this run only ever talks to that one.
+  const organisation = async () => {
+    const tid = await tenant()
+    const o = await organisationRaw()
+    if (o.id && o.id.toLowerCase() !== tid.toLowerCase()) throw new Error(`Xero reports the selected tenant (${short(tid)}) as a different organisation (${o.name}). Nothing was created. Choose the organisation again on the Settings card.`)
+    locked = tid
+    return o
   }
   return {
     organisation,
@@ -190,7 +330,7 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       const line = body.LineItems[0]
       // The tenant header and the organisation Xero says that tenant is must be the same one.
       const tid = await tenant()
-      const org = await organisation().catch(() => null)
+      const org = await organisationRaw().catch(() => null)
       if (org?.id && org.id.toLowerCase() !== tid.toLowerCase()) found.push(`The request carried tenant ${short(tid)} but Xero reports that tenant as organisation ${short(org.id)} (${org.name}). Reconnect the Xero write connection in Settings.`)
       const cur = await get<{ Currencies?: { Code?: string }[] }>('/Currencies', 'the currency')
       if (cur && !(cur.Currencies ?? []).some((c) => c.Code === body.CurrencyCode)) found.push(`Currency ${body.CurrencyCode} is not switched on in this organisation. In Xero: Settings, Currencies, Add currency, then try again.`)
@@ -252,7 +392,7 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
         // Everything needed to see what happened, and nothing secret: the request fields, the tenant
         // (8 characters), the organisations this login reaches, and Xero's own error text.
         const tenantId = await tenant()
-        const org = await organisation().catch(() => null)
+        const org = await organisationRaw().catch(() => null)
         const conns = await fetch(CONNECTIONS_URL, { headers: { authorization: `Bearer ${(await validTokens(c, store)).accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000) }).then(async (r) => (r.ok ? ((await r.json()) as { tenantId?: string; tenantName?: string }[]).map((x) => `${x.tenantName ?? '?'} [${short(x.tenantId)}]`) : [`could not list (${r.status})`])).catch(() => ['could not list'])
         const debug: DraftDebug = { at: new Date().toISOString(), method: 'POST', endpoint: `${API}/Invoices`, apiVersion: XERO_API_VERSION, tenant: short(tenantId) ?? '', organisationId: short(org?.id), connections: conns, idempotencyKey: key, request: describeRequest(body), status: 400, rawBody: scrub(text, 2000) }
         xeroLog({ event: 'xero-write-rejected', ...debug })

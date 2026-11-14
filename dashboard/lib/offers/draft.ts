@@ -157,12 +157,14 @@ const MAX_TRIES = 2
 export async function raiseDraft(a: { api: XeroApi; store: Store; reference: string; client: Client; test: boolean; lines: readonly PublicLine[]; settings: DraftSettings; now?: Date; idempotencyKey?: string; shippingCents?: number; /** XERO_WRITE_ALLOW_LIVE: drafts in a live organisation are off unless this was switched on on purpose. */ allowLive?: boolean }): Promise<DraftResult> {
   const now = a.now ?? new Date()
   const fail = (error: string, retry = false, extra: { details?: string[]; field?: string; debug?: DraftDebug; rejected?: boolean } = {}): DraftResult => ({ ok: false, error, retry, ...extra })
-  if (!a.client.xeroContactId) return fail(`${a.client.name} has no Xero ContactID yet. Add it on the Clients screen.`)
   if (a.lines.length === 0) return fail('The offer has no priced lines, so there is nothing to invoice.')
   try {
     const org = await a.api.organisation()
-    // The guard: test offers touch only a demo organisation, real offers only the live one.
-    if (a.test && !org.isDemo) return fail(`Test offers may only create drafts in the Xero Demo Company, and the connected organisation (${org.name}) is not a demo. Nothing was created.`)
+    // The guard: test offers touch only a demo organisation (unless a live test contact is mapped for the test client), real offers only the live one.
+    const liveTest = a.test && !org.isDemo
+    if (liveTest && !a.client.liveTestContactId) return fail(`Test offers only go to the Xero Demo Company, and the selected organisation (${org.name}) is not a demo. A test offer can use a live organisation only when a live test contact is mapped for the test client (Offers, Clients). Nothing was created.`)
+    const contactId = liveTest ? a.client.liveTestContactId! : a.client.xeroContactId
+    if (!contactId) return fail(`${a.client.name} has no Xero ContactID yet. Add it on the Clients screen.`)
     if (!org.isDemo && !a.allowLive) return fail(`The connected Xero organisation (${org.name}) is a live one, and drafts in a live organisation are switched off. They need their own step: set XERO_WRITE_ALLOW_LIVE=true in Vercel. This is separate from sending offers to real clients. Nothing was created.`)
     if (!a.test && org.isDemo) return fail(`Real offers may not create drafts in a demo organisation (${org.name}). Connect the live Xero organisation. Nothing was created.`)
 
@@ -172,7 +174,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
     if (a.api.contactCheck) {
       try {
         const since = new Date(now.getTime() - 14 * 86_400_000).toISOString().slice(0, 10)
-        const c = await a.api.contactCheck(a.client.xeroContactId, since)
+        const c = await a.api.contactCheck(contactId, since)
         if (c.hasAddress === false) warnings.push('Add an address in Xero before approving')
         const recent = c.recent.filter((r) => r.reference !== a.reference && !(existing && r.number === existing.number))
         if (recent.length) warnings.push(`${a.client.name} already has ${recent.length === 1 ? 'an invoice' : `${recent.length} invoices`} in Xero from the last 14 days: ${recent.slice(0, 4).map((r) => `${r.number || '(no number)'} (${r.date}, ${r.status.toLowerCase()})`).join(', ')}`)
@@ -193,7 +195,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
         if (appeared) return { ok: true, id: appeared.id, number: appeared.number, org: org.name, adopted: true, warnings }
         const n = nextInvoiceNumber(await a.api.invoiceNumbers(), org.isDemo) // re-read from Xero every time
         if (!n.ok) return fail(n.error)
-        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId: a.client.xeroContactId!, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings: a.settings })
+        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings: a.settings })
         try {
           // The key carries the invoice number: a different number is a different request, and Xero
           // answers the same key with the same (stored) result.

@@ -22,8 +22,9 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get('error')) return back('declined')
   if (!code || !saved.state || !saved.verifier || req.nextUrl.searchParams.get('state') !== saved.state) return back('state')
   try {
-    const org = await finishXeroWriteAuth(c, code, saved.verifier)
-    return back(org.isDemo ? 'connected-demo' : 'connected-live')
+    const r = await finishXeroWriteAuth(c, code, saved.verifier)
+    // Which organisation was chosen in THIS flow decides the message; which one drafts go to is a separate, explicit choice for live.
+    return back(r.chosen.some((o) => !o.isDemo) ? 'connected-live' : 'connected-demo')
   } catch (e) {
     console.error('Xero write sign-in failed:', e instanceof Error ? e.message : 'unknown')
     return back('failed')

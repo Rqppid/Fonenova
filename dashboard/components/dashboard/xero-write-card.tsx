@@ -10,6 +10,8 @@ export interface XeroWriteState {
   connected: boolean
   orgName: string | null
   isDemo: boolean | null
+  /** Every organisation the write app is connected to, which one drafts go to, and which was chosen in the latest consent. */
+  orgs?: { tenantId: string; name: string; isDemo: boolean; selected: boolean; justConnected: boolean }[]
   /** XERO_WRITE_ALLOW_LIVE is on: drafts in a live organisation are allowed. Its own switch, apart from real client sending. */
   liveAllowed?: boolean
   settings: DraftSettings
@@ -17,7 +19,7 @@ export interface XeroWriteState {
 
 const NOTICE: Record<string, { text: string; good: boolean }> = {
   'connected-demo': { text: 'Connected to a Xero Demo Company. Test offers can now create their draft invoices there.', good: true },
-  'connected-live': { text: 'Connected to your live Xero organisation. Real offers will create draft invoices there (drafts only: nothing is approved or sent).', good: true },
+  'connected-live': { text: 'A live Xero organisation is now connected. Connecting is not choosing: drafts keep going to the organisation marked "Drafts go here" until you choose the live one below, as a separate step.', good: true },
   declined: { text: 'The Xero sign-in was cancelled.', good: false },
   state: { text: 'The Xero sign-in expired or was opened in another browser. Try again.', good: false },
   failed: { text: 'Xero did not accept the connection. Check the app has the invoice, contacts and settings permissions, then try again.', good: false },
@@ -33,6 +35,25 @@ export function XeroWriteCard({ state, notice }: { state: XeroWriteState; notice
   const [form, setForm] = useState({ taxType: state.settings.taxType, accountCode: state.settings.accountCode, brandingThemeId: state.settings.brandingThemeId ?? '' })
   const [msg, setMsg] = useState<{ text: string; good: boolean } | null>(null)
   const [themes, setThemes] = useState<{ id: string; name: string }[] | null>(null)
+  const [confirmLive, setConfirmLive] = useState<Record<string, boolean>>({})
+  async function choose(tenantId: string, live: boolean) {
+    setBusy(true)
+    setMsg(null)
+    const res = await fetch('/xero-write/select', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenantId, confirmLive: live ? confirmLive[tenantId] === true : false }) }).catch(() => null)
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    setBusy(false)
+    if (res?.ok && out?.ok) { setMsg({ text: 'Done. Drafts now go to the organisation marked "Drafts go here".', good: true }); router.refresh() }
+    else setMsg({ text: out?.error ?? 'Could not change it. Check your connection and try again.', good: false })
+  }
+  async function refreshOrgs() {
+    setBusy(true)
+    setMsg(null)
+    const res = await fetch('/xero-write/refresh', { method: 'POST' }).catch(() => null)
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    setBusy(false)
+    if (res?.ok && out?.ok) router.refresh()
+    else setMsg({ text: out?.error ?? 'Could not list the organisations. Check your connection and try again.', good: false })
+  }
   async function loadThemes() {
     setBusy(true)
     setMsg(null)
@@ -71,15 +92,44 @@ export function XeroWriteCard({ state, notice }: { state: XeroWriteState; notice
         <p className="mt-0.5 text-[13px] leading-snug text-ink-2">A separate Xero connection, only for creating DRAFT invoices when a client accepts an offer. It never approves, emails or deletes anything. The read-only Xero connection above is not changed.</p>
       </div>
       <div className="space-y-3 px-5 py-3 text-[13.5px]">
+        {state.connected && state.isDemo === false && <p role="alert" className="rounded-md bg-loss px-3 py-2 text-[14px] font-semibold text-white" data-testid="live-banner">LIVE: drafts go to {state.orgName}</p>}
         {n && <p role="status" className={cn('rounded-md px-3 py-2 text-[13px]', n.good ? 'bg-gain-soft text-gain' : 'bg-warn-soft text-warn')}>{n.text}</p>}
         {!state.configured ? (
           <p className="text-ink-2" data-testid="xero-write-state">Not set up: create a second Xero app with invoice, contacts and settings permissions, then add its client id in Vercel as <code>XERO_WRITE_CLIENT_ID</code> and redeploy.</p>
         ) : state.connected ? (
           <>
-            <p className="flex items-center gap-1.5 text-ink" data-testid="xero-write-state"><CircleCheck className="h-4 w-4 text-gain" aria-hidden />Connected to <strong className="font-medium">{state.orgName}</strong>{state.isDemo ? ' · Demo Company: test offers only' : ' · live organisation: real offers only'}</p>
+            {state.orgName ? (
+              <p className="flex items-center gap-1.5 text-ink" data-testid="xero-write-state"><CircleCheck className="h-4 w-4 text-gain" aria-hidden />Drafts go to <strong className="font-medium">{state.orgName}</strong>{state.isDemo ? ' · Demo Company: test offers only' : ' · live organisation: real offers (a test client only with a live test contact)'}</p>
+            ) : (
+              <p className="flex items-center gap-1.5 text-warn" data-testid="xero-write-state"><CircleAlert className="h-4 w-4" aria-hidden />Connected, but no organisation is chosen for drafts yet. Choose one below: nothing is created until you do.</p>
+            )}
+            {(state.orgs?.length ?? 0) > 0 && (
+              <div className="space-y-2 rounded-md border border-line p-3" data-testid="xero-orgs">
+                <p className="text-[12.5px] font-medium text-ink-2">Connected organisations (choose where drafts go)</p>
+                <ul className="divide-y divide-line">
+                  {state.orgs!.map((o) => (
+                    <li key={o.tenantId} className="flex flex-wrap items-center justify-between gap-2 py-2" data-testid="xero-org">
+                      <span className="min-w-0 text-ink">
+                        {o.name}
+                        <span className={cn('ml-2 rounded px-1.5 py-0.5 text-[11.5px] font-semibold', o.isDemo ? 'bg-subtle text-ink-2' : 'bg-loss text-white')}>{o.isDemo ? 'DEMO' : 'LIVE'}</span>
+                        {o.selected && <span className="ml-2 rounded bg-gain-soft px-1.5 py-0.5 text-[11.5px] font-semibold text-gain" data-testid="org-selected">Drafts go here</span>}
+                        {o.justConnected && <span className="ml-2 text-[12px] text-ink-3">chosen in your latest sign-in</span>}
+                      </span>
+                      {!o.selected && (
+                        <span className="flex flex-wrap items-center gap-2">
+                          {!o.isDemo && <label className="flex items-center gap-1.5 text-[12.5px] text-loss"><input type="checkbox" checked={confirmLive[o.tenantId] === true} onChange={(e) => setConfirmLive({ ...confirmLive, [o.tenantId]: e.target.checked })} />Drafts will be created in my LIVE Xero</label>}
+                          <button type="button" disabled={busy || (!o.isDemo && confirmLive[o.tenantId] !== true)} onClick={() => choose(o.tenantId, !o.isDemo)} className={cn('inline-flex h-8 items-center rounded-md px-2.5 text-[12.5px] font-medium disabled:opacity-50', o.isDemo ? 'border border-line text-ink hover:bg-subtle' : 'bg-loss text-white')} data-testid={o.isDemo ? 'use-demo' : 'use-live'}>{o.isDemo ? `Use ${o.name}` : `Use ${o.name} (live)`}</button>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" onClick={refreshOrgs} disabled={busy} className="inline-flex h-8 items-center rounded-md border border-line px-2.5 text-[12.5px] font-medium text-ink-2 hover:text-ink disabled:opacity-50">Refresh the list from Xero</button>
+              </div>
+            )}
             {state.isDemo === false && <p className={cn('rounded-md px-3 py-2 text-[13px]', state.liveAllowed ? 'bg-warn-soft text-warn' : 'bg-subtle text-ink-2')} data-testid="live-gate">{state.liveAllowed ? 'Live drafts are ON (XERO_WRITE_ALLOW_LIVE). Real client sending is a separate switch (OFFERS_ALLOW_REAL_SEND).' : 'This is a live organisation, but live drafts are OFF: nothing will be created in it. Turning them on is its own step (XERO_WRITE_ALLOW_LIVE in Vercel), separate from real client sending (OFFERS_ALLOW_REAL_SEND).'}</p>}
             <div className="flex flex-wrap gap-2">
-              <a href="/xero-write/connect" className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink">Connect a different organisation</a>
+              <a href="/xero-write/connect" className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink">Connect another organisation</a>
               <button type="button" onClick={disconnect} disabled={busy} className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink disabled:opacity-50">Disconnect</button>
             </div>
           </>
