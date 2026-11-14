@@ -85,9 +85,9 @@ describe('checking the Offers variables', () => {
   it('catches the real mistakes: a pasted .env block as the token, a half address, quotes, spaces', async () => {
     const { checkPublicStoreEnv, urlProblem, tokenProblem, webhookProblem } = await import('@/lib/offers/env-check')
     const block = `Bearer UPSTASH_REDIS_REST_URL=${PUB}\nUPSTASH_REDIS_REST_TOKEN=${GOOD_TOKEN}`
-    expect(tokenProblem(block)).toBe('OFFERS_PUBLIC_REDIS_TOKEN looks malformed: paste only the token itself, with no name, "Bearer", quotes or spaces.')
-    for (const bad of [`UPSTASH_REDIS_REST_TOKEN=${GOOD_TOKEN}`, `"${GOOD_TOKEN}"`, `${GOOD_TOKEN} `, `${GOOD_TOKEN}\n`, 'short', `a=b${GOOD_TOKEN}`]) expect(tokenProblem(bad), bad).toContain('looks malformed')
-    for (const bad of ['public-store.example.test', 'http://public-store.example.test', `"${PUB}"`, `UPSTASH_REDIS_REST_URL=${PUB}`, `${PUB} `, 'https://', 'https://localhost']) expect(urlProblem(bad), bad).toContain('OFFERS_PUBLIC_REDIS_URL looks malformed')
+    expect(tokenProblem(block)).toBe('OFFERS_PUBLIC_REDIS_TOKEN looks malformed: it has a space or line break inside it. Paste only the token itself, with no name, "Bearer", quotes or spaces.')
+    for (const bad of [`UPSTASH_REDIS_REST_TOKEN=${GOOD_TOKEN}`, `"${GOOD_TOKEN}"`, 'short', `a=b${GOOD_TOKEN}`]) expect(tokenProblem(bad), bad).toContain('looks malformed')
+    for (const bad of ['public-store.example.test', 'http://public-store.example.test', `"${PUB}"`, `UPSTASH_REDIS_REST_URL=${PUB}`, 'https://', 'https://localhost']) expect(urlProblem(bad), bad).toContain('OFFERS_PUBLIC_REDIS_URL looks malformed')
     expect(webhookProblem('short')).toContain('OFFERS_WEBHOOK_TOKEN looks malformed')
     expect(webhookProblem(`${WEBHOOK} x`)).toContain('looks malformed')
     expect(checkPublicStoreEnv({ OFFERS_PUBLIC_REDIS_URL: PUB })).toMatchObject({ configured: false, problem: expect.stringContaining('OFFERS_PUBLIC_REDIS_TOKEN is not set') })

@@ -6,7 +6,7 @@
  */
 import 'server-only'
 import crypto from 'node:crypto'
-import { checkPublicStoreEnv } from './env-check'
+import { checkPublicStoreEnv, envValue } from './env-check'
 
 /** What a client sees. Sale prices only: there is no field for cost, margin or profit. */
 export interface PublicOffer {
@@ -57,7 +57,7 @@ async function run(cmd: (string | number)[]): Promise<unknown> {
   if (problem) throw new Error(problem)
   let res: Response
   try {
-    res = await fetch(process.env.OFFERS_PUBLIC_REDIS_URL!, { method: 'POST', headers: { authorization: `Bearer ${process.env.OFFERS_PUBLIC_REDIS_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify(cmd), cache: 'no-store', signal: AbortSignal.timeout(8_000) })
+    res = await fetch(envValue(process.env.OFFERS_PUBLIC_REDIS_URL)!, { method: 'POST', headers: { authorization: `Bearer ${envValue(process.env.OFFERS_PUBLIC_REDIS_TOKEN)}`, 'content-type': 'application/json' }, body: JSON.stringify(cmd), cache: 'no-store', signal: AbortSignal.timeout(8_000) })
   } catch (e) {
     throw new Error(e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'The public offers store did not answer in time.' : 'The public offers store could not be reached. Check OFFERS_PUBLIC_REDIS_URL and OFFERS_PUBLIC_REDIS_TOKEN in Vercel.')
   }
