@@ -8,6 +8,7 @@ import 'server-only'
 import crypto from 'node:crypto'
 import { DuplicateInvoiceNumber, parseXeroValidation, XeroRejected, type DraftBody, type XeroApi, type XeroInvoiceRef } from '../offers/draft'
 import { getJson, getStore, storeWritable, type Store } from '../store'
+import type { DraftDebug } from '../offers/types'
 
 const AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize'
 const TOKEN_URL = 'https://identity.xero.com/connect/token'
@@ -66,6 +67,23 @@ async function tokenRequest(body: Record<string, string>): Promise<{ access_toke
   return res.json()
 }
 
+/** What a request logs and shows: never a token or a header, and ids cut to 8 characters. */
+const short = (id: string | null | undefined) => (id ? `${id.slice(0, 8)}…` : null)
+/** Anything bearer-like removed, then cut: Xero's own error text is kept, nothing else. */
+const scrub = (s: string, max: number) => s.replace(/bearer\s+[\w.~+/=-]+/gi, '[removed]').slice(0, max)
+const xeroLog = (entry: Record<string, unknown>) => console.log(JSON.stringify({ event: 'xero-write', at: new Date().toISOString(), ...entry }))
+export const XERO_API_VERSION = 'Xero Accounting API 2.0 (https://api.xero.com/api.xro/2.0)'
+
+/** The draft fields that matter when debugging, exactly as sent. CurrencyRate is not sent: Xero applies its own rate. */
+export function describeRequest(body: DraftBody): Record<string, unknown> {
+  return {
+    Type: body.Type, Status: body.Status, InvoiceNumber: body.InvoiceNumber, Reference: body.Reference,
+    CurrencyCode: body.CurrencyCode, CurrencyRate: 'not sent', LineAmountTypes: body.LineAmountTypes,
+    Date: body.Date, DueDate: body.DueDate, ContactID: short(body.Contact.ContactID), BrandingThemeID: body.BrandingThemeID ? short(body.BrandingThemeID) : 'not sent',
+    LineItems: body.LineItems.map((l) => ({ Quantity: l.Quantity, UnitAmount: l.UnitAmount, AccountCode: l.AccountCode, TaxType: l.TaxType })),
+  }
+}
+
 async function organisationOf(accessToken: string, tenantId: string): Promise<{ name: string; isDemo: boolean }> {
   const res = await fetch(`${API}/Organisation`, { headers: { authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(20_000) })
   if (!res.ok) throw new Error(`Xero would not describe the organisation (${res.status}). The write app may be missing the accounting.settings.read permission.`)
@@ -111,20 +129,30 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
     headers.set('authorization', `Bearer ${t.accessToken}`)
     headers.set('xero-tenant-id', t.tenantId)
     headers.set('accept', 'application/json')
-    return fetch(`${API}${path}`, { ...init, headers, cache: 'no-store', signal: AbortSignal.timeout(30_000) })
+    const res = await fetch(`${API}${path}`, { ...init, headers, cache: 'no-store', signal: AbortSignal.timeout(30_000) })
+    // One line per request: which tenant it carried and what came back. No tokens, no headers, no bodies.
+    xeroLog({ method: init.method ?? 'GET', path: path.split('?')[0], tenant: short(t.tenantId), status: res.status })
+    return res
   }
+  /** Where a request really goes: the one tenant header comes from the saved login, for every call. */
+  const tenant = async () => (await validTokens(c, store)).tenantId
   const check = (res: Response, what: string) => {
     if (res.ok) return
     if (res.status === 401 || res.status === 403) throw new Error(`Xero refused ${what} (${res.status}). Reconnect the Xero write connection in Settings.`)
     if (res.status === 429) throw new Error('Xero rate limit reached; it will be tried again')
     throw new Error(`Xero ${what} failed (${res.status})`)
   }
+  // Live, not remembered, and through the same call() as every other request, so the guard looks
+  // at exactly the tenant the draft is sent to.
+  const organisation = async () => {
+    const res = await call('/Organisation')
+    if (!res.ok) throw new Error(`Xero would not describe the organisation (${res.status}). The write app may be missing the accounting.settings.read permission.`)
+    const o = ((await res.json()) as { Organisations?: { OrganisationID?: string; Name?: string; IsDemoCompany?: boolean }[] }).Organisations?.[0]
+    if (!o) throw new Error('Xero returned no organisation')
+    return { name: String(o.Name ?? ''), isDemo: o.IsDemoCompany === true, ...(o.OrganisationID ? { id: o.OrganisationID } : {}) }
+  }
   return {
-    async organisation() {
-      const t = await validTokens(c, store)
-      // Live, not remembered: the guard must see the organisation the token really reaches.
-      return organisationOf(t.accessToken, t.tenantId)
-    },
+    organisation,
     async invoiceNumbers() {
       const out: string[] = []
       for (let page = 1; page <= 50; page++) {
@@ -160,6 +188,10 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
         }
       }
       const line = body.LineItems[0]
+      // The tenant header and the organisation Xero says that tenant is must be the same one.
+      const tid = await tenant()
+      const org = await organisation().catch(() => null)
+      if (org?.id && org.id.toLowerCase() !== tid.toLowerCase()) found.push(`The request carried tenant ${short(tid)} but Xero reports that tenant as organisation ${short(org.id)} (${org.name}). Reconnect the Xero write connection in Settings.`)
       const cur = await get<{ Currencies?: { Code?: string }[] }>('/Currencies', 'the currency')
       if (cur && !(cur.Currencies ?? []).some((c) => c.Code === body.CurrencyCode)) found.push(`Currency ${body.CurrencyCode} is not switched on in this organisation. In Xero: Settings, Currencies, Add currency, then try again.`)
       const tax = await get<{ TaxRates?: { Name?: string; TaxType?: string; Status?: string; CanApplyToRevenue?: boolean }[] }>('/TaxRates', 'the tax type')
@@ -195,11 +227,20 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       return rows.filter((r) => r.BrandingThemeID).map((r) => ({ id: String(r.BrandingThemeID), name: String(r.Name ?? '') }))
     },
     async createDraft(body: DraftBody, idempotencyKey: string) {
-      const res = await call('/Invoices', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey.slice(0, 128) }, body: JSON.stringify({ Invoices: [body] }) })
+      const key = idempotencyKey.slice(0, 128)
+      const res = await call('/Invoices', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body: JSON.stringify({ Invoices: [body] }) })
       if (res.status === 400) {
-        const { messages, field } = parseXeroValidation(await res.text().catch(() => ''))
+        const text = await res.text().catch(() => '')
+        const { messages, field } = parseXeroValidation(text)
         if (messages.some((m) => /invoice ?number/i.test(m) && /unique|already/i.test(m))) throw new DuplicateInvoiceNumber()
-        throw new XeroRejected(messages, field)
+        // Everything needed to see what happened, and nothing secret: the request fields, the tenant
+        // (8 characters), the organisations this login reaches, and Xero's own error text.
+        const tenantId = await tenant()
+        const org = await organisation().catch(() => null)
+        const conns = await fetch(CONNECTIONS_URL, { headers: { authorization: `Bearer ${(await validTokens(c, store)).accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000) }).then(async (r) => (r.ok ? ((await r.json()) as { tenantId?: string; tenantName?: string }[]).map((x) => `${x.tenantName ?? '?'} [${short(x.tenantId)}]`) : [`could not list (${r.status})`])).catch(() => ['could not list'])
+        const debug: DraftDebug = { at: new Date().toISOString(), method: 'POST', endpoint: `${API}/Invoices`, apiVersion: XERO_API_VERSION, tenant: short(tenantId) ?? '', organisationId: short(org?.id), connections: conns, idempotencyKey: key, request: describeRequest(body), status: 400, rawBody: scrub(text, 2000) }
+        xeroLog({ event: 'xero-write-rejected', ...debug })
+        throw new XeroRejected(messages, field, debug)
       }
       check(res, 'creating the draft')
       const made = ((await res.json()) as { Invoices?: RawInvoice[] }).Invoices?.[0]
