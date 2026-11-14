@@ -189,6 +189,25 @@ saved price is removed if the lines or status change. `publicLines()` is the onl
 the client-facing page (description, quantity, sale price): it has no cost or margin field.
 Nothing is sent to anyone in this phase.
 
+### Offers phase 3: sending to a client, and the answer
+
+A priced offer shows "Send to <client>": a preview of exactly what the client sees (sale prices
+only), a confirmation, then `lib/offers/send.ts` reserves the offer, writes the client's snapshot
+to the **public store** (a separate Upstash database, `OFFERS_PUBLIC_REDIS_URL` /
+`OFFERS_PUBLIC_REDIS_TOKEN`, shared with fonenova.com and never holding a cost), emails the link
+from the connected Gmail account, and records it. If anything fails the reservation is undone, so
+nothing is half-sent. Only the link's SHA-256 is kept. The link is valid 24 hours.
+
+The client answers on fonenova.com. That site calls `POST /api/offers/answered` with
+`Authorization: Bearer OFFERS_WEBHOOK_TOKEN` (set the same value on both Vercel projects) and only
+the link's hash; the dashboard reads the answer from the public store itself, so a forged call
+changes nothing. The 5-minute check (`/api/cron/offers`) also picks up missed answers, expires
+offers past their deadline and rolls back a send that never completed. Accept, decline and expiry
+each ping Telegram; a declined or expired offer is unlocked with one click to reprice.
+
+Real clients stay switched off until the order and invoice steps exist (`OFFERS_ALLOW_REAL_SEND`
+unset): until then offers go to the test client only.
+
 ## Watchdog (nothing fails silently)
 
 Every morning the daily job (`/api/cron/sync`) runs the checks in `lib/health.ts`: each data

@@ -29,6 +29,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
       <OffersTabs active="offers" />
       <OffersView
         clients={clients}
+        send={{ allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', publicStore: !!(process.env.OFFERS_PUBLIC_REDIS_URL && process.env.OFFERS_PUBLIC_REDIS_TOKEN), gmail: !!gmail?.connected }}
         offers={offers ?? []}
         status={status}
         setup={{ gmail, telegram: telegramConfigured(), schedule: !!process.env.CRON_SECRET }}

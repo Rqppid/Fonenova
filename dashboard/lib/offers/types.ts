@@ -2,7 +2,7 @@
  * Offers from Mobile One, as Quay Pilot keeps them. Money is integer euro cents. Types only, so
  * the review screen (client) and the ingest job (server) share them.
  */
-export type OfferStatus = 'needs_review' | 'ready' | 'dismissed'
+export type OfferStatus = 'needs_review' | 'ready' | 'dismissed' | 'sent' | 'accepted' | 'declined' | 'expired'
 
 export interface OfferLine {
   id: string
@@ -30,6 +30,28 @@ export interface OfferPricing {
   pricedAt: string
 }
 
+/** One time an offer was sent to a client. The link's token is never kept, only its hash. */
+export interface OfferSend {
+  clientId: string
+  clientName: string
+  to: string[]
+  /** SHA-256 of the link's token: how the public store and the answer find this send. */
+  tokenHash: string
+  /** The first characters of the token, to recognise a link in a question from a client. */
+  tokenHint: string
+  sentAt: string
+  expiresAt: string
+  totalCents: number
+  units: number
+  /** A test send to the owner's own inbox. */
+  test: boolean
+  /** Null until Gmail confirms; a send stuck without it is rolled back by the 5-minute check. */
+  gmailMessageId: string | null
+  outcome: 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn'
+  answer?: { decision: 'accept' | 'decline'; remarks: string; at: string; ip: string; ua: string }
+  resolvedAt?: string
+}
+
 export interface Offer {
   id: string
   status: OfferStatus
@@ -47,6 +69,8 @@ export interface Offer {
   lines: OfferLine[]
   /** Set once the offer is priced for a client; cleared if the lines or status change. */
   pricing?: OfferPricing
+  /** Every time it was sent to a client, newest last. */
+  sends?: OfferSend[]
   createdAt: string
   updatedAt: string
   audit: { at: string; what: string }[]
