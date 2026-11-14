@@ -81,7 +81,17 @@ export function AfterAcceptance({ offer }: { offer: Offer }) {
             </p>
           )}
           {(d.state === 'pending' || d.state === 'working') && <p>Creating the draft…</p>}
-          {d.state === 'blocked' && <p>Needs you: {d.reason}</p>}
+          {d.state === 'blocked' && (
+            <>
+              <p>Needs you: {d.reason}</p>
+              {d.field && <p className="mt-0.5 text-[12.5px]" data-testid="draft-field">Field: <strong className="text-ink">{d.field}</strong></p>}
+              {d.details && d.details.length > 0 && (
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12.5px]" data-testid="draft-details">
+                  {d.details.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+              )}
+            </>
+          )}
           {d.state === 'failed' && <p>Did not work (try {d.attempts}): {d.reason}. It tries again every 5 minutes.</p>}
         </Row>
       </ul>

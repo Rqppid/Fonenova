@@ -73,6 +73,10 @@ export interface DraftStep {
   invoiceId?: string
   invoiceNumber?: string
   org?: string
+  /** Xero's own validation messages and the checks that followed, in plain sentences. Never a token or a raw response. */
+  details?: string[]
+  /** Which setting the message points at (Branding theme, Currency, Tax type, Account code, Contact, Date). */
+  field?: string
 }
 export interface Fulfilment {
   /** FN-ORD-### for a real offer, TEST-### for a test one. */
