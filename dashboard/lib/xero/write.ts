@@ -246,7 +246,9 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       if (res.status === 400) {
         const text = await res.text().catch(() => '')
         const { messages, field } = parseXeroValidation(text)
-        if (messages.some((m) => /invoice ?number/i.test(m) && /unique|already/i.test(m))) throw new DuplicateInvoiceNumber()
+        // Xero words it as "Invoice # must be unique" (or "... already exists"). The invoice number is the only
+        // unique-constrained field in this request (the contact is sent by id, not by name).
+        if (messages.some((m) => /must be unique|already (exists|been used|in use)/i.test(m) && !/contact/i.test(m))) throw new DuplicateInvoiceNumber()
         // Everything needed to see what happened, and nothing secret: the request fields, the tenant
         // (8 characters), the organisations this login reaches, and Xero's own error text.
         const tenantId = await tenant()

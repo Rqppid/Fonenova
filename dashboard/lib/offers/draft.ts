@@ -151,7 +151,8 @@ export function buildDraftBody(a: { number: string; reference: string; contactId
   }
 }
 
-const MAX_TRIES = 3
+/** The number is read from Xero, and if Xero calls it a duplicate it is read again and tried once more, never more. */
+const MAX_TRIES = 2
 
 export async function raiseDraft(a: { api: XeroApi; store: Store; reference: string; client: Client; test: boolean; lines: readonly PublicLine[]; settings: DraftSettings; now?: Date; idempotencyKey?: string; shippingCents?: number; /** XERO_WRITE_ALLOW_LIVE: drafts in a live organisation are off unless this was switched on on purpose. */ allowLive?: boolean }): Promise<DraftResult> {
   const now = a.now ?? new Date()
@@ -182,25 +183,24 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
     // A draft with this reference may already exist (an earlier attempt that lost its answer): link to it, never create another.
     if (existing) return { ok: true, id: existing.id, number: existing.number, org: org.name, adopted: true, warnings }
 
-    // One number at a time, so two runs never take the same one.
+    // One at a time within this app, so two of our own runs never read the same highest number.
+    // The number itself always comes from Xero (no local counter): the highest 7-digit sales number there, plus one.
     return await a.store.withLock('offers:invoice-number', async (): Promise<DraftResult> => {
       for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
-        const hwm = await getJson<number>(a.store, 'offers:invoice-hwm')
-        const n = nextInvoiceNumber(await a.api.invoiceNumbers(), hwm, org.isDemo)
+        // Inside the lock, every time: a draft for this reference may have appeared since the check above (a parallel run,
+        // or a duplicate-number retry). Link to it; never make a second.
+        const appeared = attempt === 0 && !a.api.findByReference ? null : await a.api.findByReference(a.reference)
+        if (appeared) return { ok: true, id: appeared.id, number: appeared.number, org: org.name, adopted: true, warnings }
+        const n = nextInvoiceNumber(await a.api.invoiceNumbers(), org.isDemo) // re-read from Xero every time
         if (!n.ok) return fail(n.error)
         const body = buildDraftBody({ number: n.number, reference: a.reference, contactId: a.client.xeroContactId!, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings: a.settings })
         try {
           // The key carries the invoice number: a different number is a different request, and Xero
           // answers the same key with the same (stored) result.
           const made = await a.api.createDraft(body, `${a.idempotencyKey ?? `fn-draft-${a.reference}`}-n${n.number}`)
-          await a.store.set('offers:invoice-hwm', Number(n.number))
           return { ok: true, id: made.id, number: made.number, org: org.name, adopted: false, warnings }
         } catch (e) {
-          if (e instanceof DuplicateInvoiceNumber) {
-            // Taken in the meantime: remember it so the next attempt goes past it.
-            await a.store.set('offers:invoice-hwm', Number(n.number))
-            continue
-          }
+          if (e instanceof DuplicateInvoiceNumber) continue // taken in the meantime: read Xero again, once
           if (e instanceof XeroRejected) {
             // Xero understood the draft and refused it: say exactly why, and which setting to check.
             const found = a.api.diagnose ? await a.api.diagnose(body).catch(() => [] as string[]) : []
@@ -210,7 +210,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
           throw e
         }
       }
-      return fail('Xero kept refusing the invoice number. Nothing was created; it will be tried again.', true)
+      return fail('Xero said the invoice number was taken twice in a row. Nothing was created; the next attempt reads the numbers from Xero again, and a draft for this order is never made twice.', true)
     })
   } catch (e) {
     // Never include anything but our own sentence: no tokens, no response bodies.

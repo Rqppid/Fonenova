@@ -220,11 +220,12 @@ describe('retrying after a refusal uses a fresh idempotency key', () => {
   it('a taken invoice number uses a different key for the next number', async () => {
     const created: string[] = []
     const keys: string[] = []
+    const listed: string[] = []
     const api: XeroApi = {
       async organisation() { return { name: 'Fonenova Ltd', isDemo: false } },
-      async invoiceNumbers() { return ['2026047'] },
+      async invoiceNumbers() { return ['2026047', ...listed] },
       async findByReference() { return null },
-      async createDraft(b, key) { keys.push(key); if (b.InvoiceNumber === '2026048') throw new DuplicateInvoiceNumber(); created.push(b.InvoiceNumber); return { id: 'i', number: b.InvoiceNumber, status: 'DRAFT' } },
+      async createDraft(b, key) { keys.push(key); if (b.InvoiceNumber === '2026048') { listed.push('2026048'); throw new DuplicateInvoiceNumber() } created.push(b.InvoiceNumber); return { id: 'i', number: b.InvoiceNumber, status: 'DRAFT' } },
     }
     const r = await raiseDraft({ api, store: mutexStore(), reference: 'FN-ORD-016', client: { ...seedClients()[0] }, test: false, lines: [{ description: 'x', qty: 1, unitSaleCents: 100 }], settings: DEFAULT_DRAFT_SETTINGS, now: NOW, allowLive: true })
     expect(r).toMatchObject({ ok: true, number: '2026049' })

@@ -11,14 +11,16 @@ export const DEMO_FIRST_INVOICE = 2026001
 export type NumberResult = { ok: true; number: string } | { ok: false; error: string }
 
 /**
- * The next invoice number: one more than the highest 7-digit sales number in Xero (any status, so
- * drafts, voided and deleted numbers are never reused) or the highest this dashboard ever raised,
- * whichever is higher. A live organisation with no numbers at all is refused: a wrong first
- * number would be an invoice-numbering gap nobody can undo.
+ * The next invoice number: one more than the highest 7-digit sales number in the connected Xero
+ * organisation, read from Xero at the moment the draft is made (any status, so drafts, voided and
+ * deleted numbers are never reused). There is deliberately no local counter: Xero is the only
+ * source, so the dashboard continues whatever sequence the organisation is really on, including
+ * invoices raised in Xero or Invoice2go since the last time. A live organisation with no numbers
+ * at all is refused: a wrong first number would be a numbering gap nobody can undo.
  */
-export function nextInvoiceNumber(existing: readonly string[], highWater: number | null, demo: boolean): NumberResult {
+export function nextInvoiceNumber(existing: readonly string[], demo: boolean): NumberResult {
   const nums = existing.map((n) => n.trim()).filter((n) => INVOICE_NO.test(n)).map(Number)
-  const top = Math.max(0, ...nums, highWater ?? 0)
+  const top = Math.max(0, ...nums)
   if (top === 0) {
     return demo ? { ok: true, number: String(DEMO_FIRST_INVOICE) } : { ok: false, error: 'No existing 7-digit invoice number was found in Xero, so the next one cannot be worked out safely. Nothing was created.' }
   }
