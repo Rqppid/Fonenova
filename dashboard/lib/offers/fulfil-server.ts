@@ -1,0 +1,38 @@
+/** The real connections behind lib/offers/fulfil.ts: Gmail, the Xero write app, the ledger. */
+import 'server-only'
+import { gmailConfig, hasReplied, sendGmail } from '../gmail'
+import { loadXeroPairs } from '../data-source'
+import { getJson, type Store } from '../store'
+import { xeroWriteApi, xeroWriteConfig } from '../xero/write'
+import type { Ledger } from '../types'
+import type { FulfilDeps } from './fulfil'
+import { notify } from './telegram'
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+export function fulfilDeps(store: Store, over: Partial<Pick<FulfilDeps, 'notify'>> = {}): FulfilDeps {
+  const g = gmailConfig()
+  return {
+    store,
+    notify: over.notify ?? notify,
+    dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''),
+    allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
+    ownerAddress: g?.to ?? 'info@fonenova.com',
+    knownOrderIds: async () => {
+      const ledger = await getJson<Ledger>(store, 'ledger')
+      const pairs = await loadXeroPairs()
+      return [...(ledger?.orders ?? []).map((o) => o.id), ...pairs.map((p) => p.orderId)]
+    },
+    xero: () => (xeroWriteConfig() ? xeroWriteApi(store) : null),
+    reply: async (m) => {
+      if (!g) throw new Error('Gmail is not set up on the dashboard')
+      const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${esc(m.text).replace(/\n/g, '<br>')}</div>`
+      const sent = await sendGmail(g, { subject: m.subject, text: m.text, html, to: m.to, fromName: 'FoneNova', ...(m.threadId ? { threadId: m.threadId } : {}), ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}) }, store)
+      return { id: sent.id }
+    },
+    replied: async (threadId, afterIso) => {
+      if (!g) throw new Error('Gmail is not set up')
+      return hasReplied(g, threadId, afterIso, store)
+    },
+  }
+}

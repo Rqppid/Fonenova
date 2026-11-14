@@ -18,6 +18,8 @@ export interface ResolveDeps {
   /** Email the owner about an answer or expiry (best effort: a failure never stops the status update or Telegram). */
   email?: (m: NotifyEmail) => Promise<unknown>
   getAnswer?: (hash: string) => Promise<PublicAnswer | null>
+  /** Start the work after an acceptance (reply to Mobile One, draft invoice). Best effort: a failure never undoes the status. */
+  fulfil?: (offerId: string) => Promise<unknown>
   now?: Date
   dashboardUrl?: string
 }
@@ -41,7 +43,7 @@ async function update(store: Store, hash: string, fn: (o: Offer, s: OfferSend) =
 }
 
 /** The items at the sale prices the client saw, worked out from the locked offer. Null if it cannot be. */
-async function itemsFor(store: Store, o: Offer): Promise<PublicLine[] | null> {
+export async function itemsFor(store: Store, o: Offer): Promise<PublicLine[] | null> {
   try {
     if (!o.pricing) return null
     const clients = (await getJson<Client[]>(store, 'offers:clients')) ?? seedClients()
@@ -96,11 +98,18 @@ export async function applyAnswer(hash: string, d: ResolveDeps): Promise<{ chang
     [
       `${s.test ? '[TEST] ' : ''}${s.clientName} ${accepted ? 'ACCEPTED' : 'DECLINED'} the offer: ${s.units} units, ${eur(s.totalCents)}.`,
       s.answer?.remarks ? `Remarks: ${short(s.answer.remarks, 400)}` : 'No remarks.',
-      accepted ? (s.test ? 'This was a test, so nothing else happens.' : 'Reply to Mobile One and raise the invoice yourself for now.') : 'The offer is unlocked: reprice it and send it to another client.',
+      accepted ? (s.test ? 'This was a test: the would-be reply to Mobile One goes to your inbox, and the draft invoice goes to the Xero Demo Company.' : 'Quay Pilot is now replying to Mobile One and raising a draft invoice in Xero. You will get a message with the result.') : 'The offer is unlocked: reprice it and send it to another client.',
     ].join('\n'),
     link(d, offer),
   )
   await emailOwner(d, offer, s, accepted ? 'accepted' : 'declined')
+  if (accepted && d.fulfil) {
+    try {
+      await d.fulfil(offer.id)
+    } catch {
+      // The 5-minute check picks it up: the offer already says accepted.
+    }
+  }
   return { changed: true }
 }
 

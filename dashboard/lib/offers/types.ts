@@ -52,6 +52,39 @@ export interface OfferSend {
   resolvedAt?: string
 }
 
+/** What happens after a client accepts: the reply to Mobile One and the DRAFT invoice in Xero. */
+export interface ReplyStep {
+  /** held = waiting for the owner's one tap (a check failed or could not be made). */
+  state: 'pending' | 'sending' | 'sent' | 'held' | 'failed'
+  /** Why it is held or failed, in plain words. */
+  reason?: string
+  attempts: number
+  at?: string
+  messageId?: string
+  /** Where it went: Mobile One's address for a real offer, the owner's inbox for a test. */
+  to?: string
+}
+export interface DraftStep {
+  /** working = being raised right now; blocked = a rule or setting needs the owner (no automatic retry). */
+  state: 'pending' | 'working' | 'done' | 'failed' | 'blocked'
+  reason?: string
+  attempts: number
+  at?: string
+  invoiceId?: string
+  invoiceNumber?: string
+  org?: string
+}
+export interface Fulfilment {
+  /** FN-ORD-### for a real offer, TEST-### for a test one. */
+  orderRef: string
+  test: boolean
+  startedAt: string
+  reply: ReplyStep
+  draft: DraftStep
+  /** A "this needs you" message was sent for a stuck step, so it is not repeated every 5 minutes. */
+  alerted?: boolean
+}
+
 export interface Offer {
   id: string
   status: OfferStatus
@@ -71,6 +104,8 @@ export interface Offer {
   pricing?: OfferPricing
   /** Every time it was sent to a client, newest last. */
   sends?: OfferSend[]
+  /** Set when a client accepts; absent on offers accepted before this existed. */
+  fulfilment?: Fulfilment
   createdAt: string
   updatedAt: string
   audit: { at: string; what: string }[]

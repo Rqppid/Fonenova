@@ -27,7 +27,7 @@ export function buildAnswerEmail(i: { outcome: AnswerOutcome; offer: Offer; send
   const remarks = send.answer?.remarks ?? ''
   const link = i.dashboardUrl ? `${i.dashboardUrl}/offers?id=${encodeURIComponent(i.offer.id)}` : null
   const next =
-    outcome === 'accepted' ? (send.test ? 'This was a test, so nothing else happens.' : 'Reply to Mobile One and raise the invoice yourself for now.')
+    outcome === 'accepted' ? (send.test ? 'This was a test: the would-be reply to Mobile One goes to your inbox, and the draft invoice goes to the Xero Demo Company.' : 'Quay Pilot is replying to Mobile One and raising a draft invoice in Xero. You will get a message with the result.')
     : 'The offer is unlocked: reprice it and send it to another client.'
   const rows = (i.lines ?? []).map((l) => ({ ...l, total: l.qty * l.unitSaleCents }))
 
