@@ -14,14 +14,14 @@ const input = 'h-9 w-full rounded-md border border-line bg-surface px-2 text-[13
 export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Record<string, number> }) {
   const router = useRouter()
   const [rows, setRows] = useState<Client[]>(clients)
-  const [text, setText] = useState<Record<string, { offer: string; invoice: string; fixed: string; days: string }>>(() =>
-    Object.fromEntries(clients.map((c) => [c.id, { offer: c.offerEmails.join(', '), invoice: c.invoiceEmails.join(', '), fixed: c.margin.type === 'fixed' ? (c.margin.perUnitCents / 100).toFixed(2) : '', days: c.terms === 'upfront' ? '' : String(c.terms.days) }])))
+  const [text, setText] = useState<Record<string, { offer: string; invoice: string; fixed: string; days: string; mult: string }>>(() =>
+    Object.fromEntries(clients.map((c) => [c.id, { offer: c.offerEmails.join(', '), invoice: c.invoiceEmails.join(', '), fixed: c.margin.type === 'fixed' ? (c.margin.perUnitCents / 100).toFixed(2) : '', days: c.terms === 'upfront' ? '' : String(c.terms.days), mult: String(c.shippingMultiplier ?? 2) }])))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
   const patch = (id: string, p: Partial<Client>) => { setRows(rows.map((c) => (c.id === id ? { ...c, ...p } : c))); setSaved(false) }
-  const t = (id: string, k: 'offer' | 'invoice' | 'fixed' | 'days', v: string) => { setText({ ...text, [id]: { ...text[id], [k]: v } }); setSaved(false) }
+  const t = (id: string, k: 'offer' | 'invoice' | 'fixed' | 'days' | 'mult', v: string) => { setText({ ...text, [id]: { ...text[id], [k]: v } }); setSaved(false) }
 
   function build(): Client[] {
     return rows.map((c) => {
@@ -33,6 +33,7 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
         invoiceEmails: list(x.invoice),
         margin: c.margin.type === 'fixed' ? { type: 'fixed', perUnitCents: fixed ?? 0, locked: c.margin.locked } : { type: 'manual' },
         terms: c.terms === 'upfront' ? 'upfront' : { days: Number(x.days) },
+        shippingMultiplier: x.mult.trim() === '' ? 2 : Number(x.mult),
       }
     })
   }
@@ -49,8 +50,8 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
 
   function add() {
     const id = `c_${Math.random().toString(36).slice(2, 8).padEnd(6, '0')}`
-    setRows([...rows, { id, name: '', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, autoApprove: false, folder: 'other', test: false }])
-    setText({ ...text, [id]: { offer: '', invoice: '', fixed: '', days: '30' } })
+    setRows([...rows, { id, name: '', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'other', test: false }])
+    setText({ ...text, [id]: { offer: '', invoice: '', fixed: '', days: '30', mult: '2' } })
     setSaved(false)
   }
 
@@ -63,7 +64,7 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2 className="text-[15px] font-semibold text-ink">{c.name || 'New client'}{c.test && <span className="ml-2 rounded bg-subtle px-1.5 py-0.5 text-[11.5px] font-medium text-ink-2">test</span>}</h2>
-                <p className="text-[12.5px] text-ink-2">{ruleText(c)} · {c.terms === 'upfront' ? 'pays upfront' : `${c.terms.days} days`}</p>
+                <p className="text-[12.5px] text-ink-2">{ruleText(c)} · {!c.termsConfirmed ? <span className="text-warn">payment terms not chosen yet</span> : c.terms === 'upfront' ? 'pays upfront' : `${c.terms.days} days`} · shipping × {x.mult || 2}</p>
               </div>
               <button type="button" disabled={(usedBy[c.id] ?? 0) > 0} title={(usedBy[c.id] ?? 0) > 0 ? 'An offer is priced for this client' : 'Remove client'} aria-label={`Remove ${c.name || 'client'}`} onClick={() => { setRows(rows.filter((r) => r.id !== c.id)); setSaved(false) }} className="rounded p-1.5 text-ink-3 hover:bg-subtle hover:text-loss disabled:opacity-30"><Trash2 className="h-4 w-4" aria-hidden /></button>
             </div>
@@ -84,14 +85,26 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
                   <label className="mb-2 flex items-center gap-1.5"><input type="checkbox" checked={c.margin.locked} onChange={(e) => patch(c.id, { margin: { type: 'fixed', perUnitCents: c.margin.type === 'fixed' ? c.margin.perUnitCents : 400, locked: e.target.checked } })} />Locked (no per-line changes)</label>
                 </div>
               )}
-              <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Payment terms</span>
+              <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Payment terms (choose on purpose{c.test ? '' : ': required for a real client'})</span>
                 <div className="flex items-center gap-2">
-                  <select className={cn(input, 'w-32')} value={c.terms === 'upfront' ? 'upfront' : 'days'} onChange={(e) => patch(c.id, { terms: e.target.value === 'upfront' ? 'upfront' : { days: Number(x.days) || 30 } })}>
-                    <option value="days">Days</option>
+                  <select aria-label="Payment terms" className={cn(input, 'w-44', !c.termsConfirmed && !c.test && 'border-warn')} value={!c.termsConfirmed ? '' : c.terms === 'upfront' ? 'upfront' : c.terms.days === 7 ? '7' : c.terms.days === 14 ? '14' : 'days'} onChange={(e) => {
+                    const v = e.target.value
+                    if (v === '') patch(c.id, { termsConfirmed: false })
+                    else if (v === 'upfront') patch(c.id, { terms: 'upfront', termsConfirmed: true })
+                    else if (v === '7' || v === '14') { t(c.id, 'days', v); patch(c.id, { terms: { days: Number(v) }, termsConfirmed: true }) }
+                    else patch(c.id, { terms: { days: Number(x.days) || 30 }, termsConfirmed: true })
+                  }}>
+                    <option value="">Choose…</option>
+                    <option value="7">7 days</option>
+                    <option value="14">14 days</option>
+                    <option value="days">Other number of days</option>
                     <option value="upfront">Upfront</option>
                   </select>
-                  {c.terms !== 'upfront' && <input aria-label="Payment days" inputMode="numeric" className={cn(input, 'w-24 text-right')} value={x.days} onChange={(e) => t(c.id, 'days', e.target.value)} />}
+                  {c.termsConfirmed && c.terms !== 'upfront' && c.terms.days !== 7 && c.terms.days !== 14 && <input aria-label="Payment days" inputMode="numeric" className={cn(input, 'w-24 text-right')} value={x.days} onChange={(e) => t(c.id, 'days', e.target.value)} />}
                 </div>
+              </label>
+              <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Shipping multiplier (Mobile One&apos;s shipping × this)</span>
+                <input aria-label="Shipping multiplier" inputMode="decimal" className={cn(input, 'w-28 text-right')} value={x.mult} onChange={(e) => t(c.id, 'mult', e.target.value)} placeholder="2" />
               </label>
               <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Invoice PDF folder</span>
                 <select className={input} value={c.folder} onChange={(e) => patch(c.id, { folder: e.target.value as Folder })}>{FOLDERS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>

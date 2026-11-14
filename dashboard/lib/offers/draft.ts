@@ -48,6 +48,8 @@ export interface XeroApi {
   createDraft(body: DraftBody, idempotencyKey: string): Promise<XeroInvoiceRef>
   /** After Xero rejected the draft: check the currency, tax type, account, contact and branding theme, and say which is wrong. Best effort. */
   diagnose?(body: DraftBody): Promise<string[]>
+  /** The contact's address, and its invoices from the last 14 days (for warnings; best effort, never blocks a draft). */
+  contactCheck?(contactId: string, sinceDate: string): Promise<{ hasAddress: boolean | null; recent: { number: string; date: string; status: string; reference: string }[] }>
   /** The organisation's branding themes with their API ids, for the Settings dropdown. */
   brandingThemes?(): Promise<{ id: string; name: string }[]>
 }
@@ -113,7 +115,7 @@ export function parseXeroValidation(text: string): { messages: string[]; field: 
 }
 
 export type DraftResult =
-  | { ok: true; id: string; number: string; org: string; adopted: boolean }
+  | { ok: true; id: string; number: string; org: string; adopted: boolean; warnings: string[] }
   | { ok: false; error: string; /** Worth retrying later: Xero or the network, not a rule. */ retry: boolean; details?: string[]; field?: string; debug?: DraftDebug; rejected?: boolean }
 
 const euros = (cents: number) => Math.round(cents) / 100
@@ -124,7 +126,12 @@ export function dueDate(now: Date, terms: Client['terms']): string {
   return isoDate(new Date(now.getTime() + days * 86_400_000))
 }
 
-export function buildDraftBody(a: { number: string; reference: string; contactId: string; lines: readonly PublicLine[]; terms: Client['terms']; now: Date; settings: DraftSettings }): DraftBody {
+export { xeroDraftUrl } from './xero-url'
+
+/** The description of the shipping line on the draft. */
+export const SHIPPING_DESCRIPTION = 'SHIPPING CHARGES'
+
+export function buildDraftBody(a: { number: string; reference: string; contactId: string; lines: readonly PublicLine[]; shippingCents?: number; terms: Client['terms']; now: Date; settings: DraftSettings }): DraftBody {
   return {
     Type: 'ACCREC',
     Status: 'DRAFT',
@@ -136,13 +143,17 @@ export function buildDraftBody(a: { number: string; reference: string; contactId
     CurrencyCode: 'EUR',
     LineAmountTypes: 'Exclusive',
     ...(a.settings.brandingThemeId ? { BrandingThemeID: a.settings.brandingThemeId } : {}),
-    LineItems: a.lines.map((l) => ({ Description: l.description, Quantity: l.qty, UnitAmount: euros(l.unitSaleCents), AccountCode: a.settings.accountCode, TaxType: a.settings.taxType })),
+    LineItems: [
+      ...a.lines.map((l) => ({ Description: l.description, Quantity: l.qty, UnitAmount: euros(l.unitSaleCents), AccountCode: a.settings.accountCode, TaxType: a.settings.taxType })),
+      // Its own line, on the same account and tax type as the items (invoice 2026047 does the same).
+      ...(a.shippingCents && a.shippingCents > 0 ? [{ Description: SHIPPING_DESCRIPTION, Quantity: 1, UnitAmount: euros(a.shippingCents), AccountCode: a.settings.accountCode, TaxType: a.settings.taxType }] : []),
+    ],
   }
 }
 
 const MAX_TRIES = 3
 
-export async function raiseDraft(a: { api: XeroApi; store: Store; reference: string; client: Client; test: boolean; lines: readonly PublicLine[]; settings: DraftSettings; now?: Date; idempotencyKey?: string }): Promise<DraftResult> {
+export async function raiseDraft(a: { api: XeroApi; store: Store; reference: string; client: Client; test: boolean; lines: readonly PublicLine[]; settings: DraftSettings; now?: Date; idempotencyKey?: string; shippingCents?: number; /** XERO_WRITE_ALLOW_LIVE: drafts in a live organisation are off unless this was switched on on purpose. */ allowLive?: boolean }): Promise<DraftResult> {
   const now = a.now ?? new Date()
   const fail = (error: string, retry = false, extra: { details?: string[]; field?: string; debug?: DraftDebug; rejected?: boolean } = {}): DraftResult => ({ ok: false, error, retry, ...extra })
   if (!a.client.xeroContactId) return fail(`${a.client.name} has no Xero ContactID yet. Add it on the Clients screen.`)
@@ -151,11 +162,25 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
     const org = await a.api.organisation()
     // The guard: test offers touch only a demo organisation, real offers only the live one.
     if (a.test && !org.isDemo) return fail(`Test offers may only create drafts in the Xero Demo Company, and the connected organisation (${org.name}) is not a demo. Nothing was created.`)
+    if (!org.isDemo && !a.allowLive) return fail(`The connected Xero organisation (${org.name}) is a live one, and drafts in a live organisation are switched off. They need their own step: set XERO_WRITE_ALLOW_LIVE=true in Vercel. This is separate from sending offers to real clients. Nothing was created.`)
     if (!a.test && org.isDemo) return fail(`Real offers may not create drafts in a demo organisation (${org.name}). Connect the live Xero organisation. Nothing was created.`)
 
-    // A draft with this reference may already exist (an earlier attempt that lost its answer): adopt it.
+    // Things worth a look, none of which stop the draft: the contact has no address, or was invoiced in the last 14 days.
+    const warnings: string[] = []
     const existing = await a.api.findByReference(a.reference)
-    if (existing) return { ok: true, id: existing.id, number: existing.number, org: org.name, adopted: true }
+    if (a.api.contactCheck) {
+      try {
+        const since = new Date(now.getTime() - 14 * 86_400_000).toISOString().slice(0, 10)
+        const c = await a.api.contactCheck(a.client.xeroContactId, since)
+        if (c.hasAddress === false) warnings.push('Add an address in Xero before approving')
+        const recent = c.recent.filter((r) => r.reference !== a.reference && !(existing && r.number === existing.number))
+        if (recent.length) warnings.push(`${a.client.name} already has ${recent.length === 1 ? 'an invoice' : `${recent.length} invoices`} in Xero from the last 14 days: ${recent.slice(0, 4).map((r) => `${r.number || '(no number)'} (${r.date}, ${r.status.toLowerCase()})`).join(', ')}`)
+      } catch {
+        warnings.push("Could not check the contact's address and recent invoices in Xero")
+      }
+    }
+    // A draft with this reference may already exist (an earlier attempt that lost its answer): link to it, never create another.
+    if (existing) return { ok: true, id: existing.id, number: existing.number, org: org.name, adopted: true, warnings }
 
     // One number at a time, so two runs never take the same one.
     return await a.store.withLock('offers:invoice-number', async (): Promise<DraftResult> => {
@@ -163,13 +188,13 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
         const hwm = await getJson<number>(a.store, 'offers:invoice-hwm')
         const n = nextInvoiceNumber(await a.api.invoiceNumbers(), hwm, org.isDemo)
         if (!n.ok) return fail(n.error)
-        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId: a.client.xeroContactId!, lines: a.lines, terms: a.client.terms, now, settings: a.settings })
+        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId: a.client.xeroContactId!, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings: a.settings })
         try {
           // The key carries the invoice number: a different number is a different request, and Xero
           // answers the same key with the same (stored) result.
           const made = await a.api.createDraft(body, `${a.idempotencyKey ?? `fn-draft-${a.reference}`}-n${n.number}`)
           await a.store.set('offers:invoice-hwm', Number(n.number))
-          return { ok: true, id: made.id, number: made.number, org: org.name, adopted: false }
+          return { ok: true, id: made.id, number: made.number, org: org.name, adopted: false, warnings }
         } catch (e) {
           if (e instanceof DuplicateInvoiceNumber) {
             // Taken in the meantime: remember it so the next attempt goes past it.

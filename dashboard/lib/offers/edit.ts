@@ -7,8 +7,10 @@ import type { Client } from './clients'
 import { priceOffer, toPricing, type PricingInput } from './pricing'
 import type { Offer, OfferLine, OfferStatus } from './types'
 
+const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
 export type OfferEdit =
-  | { action: 'save'; id: string; lines: OfferLine[] }
+  | { action: 'save'; id: string; lines: OfferLine[]; /** Mobile One's shipping as typed on the review screen; undefined leaves it as it is. */ shipping?: { cents: number | null; none: boolean } }
   | { action: 'status'; id: string; status: OfferStatus }
   | { action: 'price'; id: string; input: PricingInput }
   | { action: 'unprice'; id: string }
@@ -48,7 +50,9 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
       if (!/^[a-f0-9]{6,24}$/.test(k) || typeof v !== 'number' || !Number.isSafeInteger(v)) return { ok: false, error: 'A per-line margin must be a whole number of cents' }
       overrides[k] = v
     }
-    return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true } } }
+    const sc = b.shippingCents === null || b.shippingCents === undefined || b.shippingCents === '' ? null : b.shippingCents
+    if (sc !== null && (typeof sc !== 'number' || !Number.isSafeInteger(sc))) return { ok: false, error: "The client's shipping must be a whole number of cents" }
+    return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true, shippingCents: sc as number | null } } }
   }
   if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry or create_test' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
@@ -71,7 +75,15 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
       note: optStr(l.note, 200) ?? null,
     })
   }
-  return { ok: true, value: { action: 'save', id, lines } }
+  let shipping: { cents: number | null; none: boolean } | undefined
+  if (b.shipping !== undefined) {
+    const s = (b.shipping ?? {}) as Record<string, unknown>
+    const cents = s.cents === null || s.cents === undefined ? null : s.cents
+    if (cents !== null && (typeof cents !== 'number' || !Number.isSafeInteger(cents) || cents < 1 || cents > 10_000_000)) return { ok: false, error: "Mobile One's shipping must be an amount between €0.01 and €100,000.00" }
+    if (s.none !== undefined && typeof s.none !== 'boolean') return { ok: false, error: 'The no-shipping confirmation must be true or false' }
+    shipping = { cents: s.none === true ? null : (cents as number | null), none: s.none === true }
+  }
+  return { ok: true, value: { action: 'save', id, lines, ...(shipping ? { shipping } : {}) } }
 }
 
 /** The offer after an edit, with the change in its history. Ready needs at least one line. */
@@ -92,17 +104,27 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
     const client = clients.find((c) => c.id === e.input.clientId)
     if (!client) return { error: 'That client no longer exists' }
     if (o.testOnly && !client.test) return { error: 'This is a test offer: it can only be priced for a test client.' }
-    const r = priceOffer(o.lines, client, e.input)
+    // Mobile One's shipping comes from the offer itself, never from the request.
+    const input: PricingInput = { ...e.input, mobileShipping: { cents: o.shipping?.mobileOneCents ?? null, none: o.shipping?.source === 'none' } }
+    const r = priceOffer(o.lines, client, input)
     if (!r.ok) return { error: r.errors[0] ?? (r.needsAck ? `Tick the box to confirm the ${r.lowCount} line${r.lowCount === 1 ? '' : 's'} under the minimum margin` : 'This offer cannot be priced yet') }
-    const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    return { ...o, pricing: toPricing(e.input, client, now), updatedAt: now, audit: log(`Priced for ${client.name}: sale ${eur(r.totals.saleCents)}, profit ${eur(r.totals.profitCents)}`) }
+    return { ...o, pricing: toPricing(input, client, now), updatedAt: now, audit: log(`Priced for ${client.name}: items ${eur(r.totals.saleCents)} + shipping ${eur(r.totals.shippingCents)} = ${eur(r.totals.grandCents)}, profit ${eur(r.totals.profitCents + r.totals.shippingProfitCents)}`) }
   }
   // Changing the lines or the status makes any saved price stale, so it is removed with a note.
   const { pricing, ...bare } = o
   const stale = pricing ? '. Price removed: price it again' : ''
   if (e.action === 'save') {
     if (o.status === 'dismissed') return { error: 'Restore this offer before editing it' }
-    return { ...bare, lines: e.lines, updatedAt: now, audit: log(`Lines edited (${e.lines.length})${stale}`) }
+    let shipping = o.shipping
+    if (e.shipping) {
+      const was = o.shipping
+      shipping = e.shipping.none ? { mobileOneCents: 0, source: 'none', sourceText: null }
+        : e.shipping.cents === null ? { mobileOneCents: null, source: 'manual', sourceText: was?.sourceText ?? null }
+        : was && was.source === 'email' && was.mobileOneCents === e.shipping.cents ? was
+        : { mobileOneCents: e.shipping.cents, source: 'manual', sourceText: was?.sourceText ?? null }
+    }
+    const shipNote = e.shipping && JSON.stringify(shipping) !== JSON.stringify(o.shipping) ? `; shipping ${shipping?.source === 'none' ? 'set to none' : shipping?.mobileOneCents === null ? 'cleared' : `set to ${eur(shipping!.mobileOneCents!)}`}` : ''
+    return { ...bare, lines: e.lines, ...(shipping ? { shipping } : {}), updatedAt: now, audit: log(`Lines edited (${e.lines.length})${shipNote}${stale}`) }
   }
   if (e.status === 'ready' && !o.lines.length) return { error: 'An offer needs at least one line to be ready' }
   const what = e.status === 'ready' ? 'Marked reviewed' : e.status === 'dismissed' ? 'Marked not an offer' : 'Back to review'

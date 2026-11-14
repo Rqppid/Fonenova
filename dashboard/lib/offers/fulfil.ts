@@ -14,7 +14,7 @@ import { loadDraftSettings, raiseDraft, type XeroApi } from './draft'
 import { emailAddress } from './clean'
 import { seedClients, type Client } from './clients'
 import { nextOrderRef } from './numbering'
-import { itemsFor } from './resolve'
+import { figuresFor, figuresOrWhy } from './resolve'
 import type { DraftDebug, Fulfilment, Offer, OfferSend } from './types'
 
 export interface ReplyMessage { to: string; subject: string; text: string; threadId?: string; inReplyTo?: string }
@@ -30,6 +30,8 @@ export interface FulfilDeps {
   ownerAddress: string
   /** Order ids already in the ledger and pairs, so a new reference never collides. */
   knownOrderIds: () => Promise<string[]>
+  /** XERO_WRITE_ALLOW_LIVE: drafts in a live Xero organisation. A separate switch from allowReal. */
+  allowLiveXero?: boolean
   /** The Xero write connection, or null when it is not set up. */
   xero: () => XeroApi | null
   /** Sends one email from the connected Gmail. Throws when it cannot. */
@@ -91,8 +93,8 @@ export function buildReply(o: Offer, f: Fulfilment, ownerAddress: string): Reply
 async function gate(o: Offer, s: OfferSend, d: FulfilDeps): Promise<string | null> {
   const age = nowOf(d).getTime() - Date.parse(o.source.receivedAt)
   if (!(age <= MAX_OFFER_AGE_MS)) return `Mobile One's offer is more than 48 hours old (${ukTime(o.source.receivedAt)}).`
-  const items = await itemsFor(d.store, o)
-  const total = items ? items.reduce((n, l) => n + l.unitSaleCents * l.qty, 0) : null
+  const figures = await figuresFor(d.store, o)
+  const total = figures ? figures.grandCents : null
   if (total === null || total !== s.totalCents) return `The accepted total (${eur(s.totalCents)}) does not match the offer as priced now.`
   try {
     if (await d.replied(o.source.threadId, o.source.receivedAt)) return 'You have already replied in that thread.'
@@ -176,12 +178,14 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   if (!api) return void (await block('The Xero write connection is not set up. Connect it in Settings, then press Try again.'))
   const clients = (await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()
   const client = claimed.pricing ? clients.find((c) => c.id === claimed.pricing!.clientId) : undefined
-  const lines = await itemsFor(d.store, claimed)
-  if (!client || !lines) return void (await block('The offer could not be priced again from its saved settings.'))
+  const { figures, why } = await figuresOrWhy(d.store, claimed)
+  if (!client || !figures) return void (await block(why ?? 'The offer could not be priced again from its saved settings.'))
+  // A real client needs its payment terms chosen on purpose: a due date from a placeholder would be a wrong invoice.
+  if (!client.test && !client.termsConfirmed) return void (await block(`Confirm ${client.name}'s payment terms (Offers, Clients) before a draft invoice is raised for them.`))
 
-  const r = await raiseDraft({ api, store: d.store, reference: f.orderRef, client, test: f.test, lines, settings: await loadDraftSettings(d.store), now: nowOf(d), idempotencyKey: `fn-draft-${f.orderRef}-r${f.draft.rejections ?? 0}` })
+  const r = await raiseDraft({ api, store: d.store, reference: f.orderRef, client, test: f.test, lines: figures.lines, shippingCents: figures.shippingCents, allowLive: d.allowLiveXero === true, settings: await loadDraftSettings(d.store), now: nowOf(d), idempotencyKey: `fn-draft-${f.orderRef}-r${f.draft.rejections ?? 0}` })
   if (r.ok) {
-    await finish({ ...f.draft, state: 'done', invoiceId: r.id, invoiceNumber: r.number, org: r.org, at: nowOf(d).toISOString(), reason: undefined, details: undefined, field: undefined, debug: undefined }, `${r.adopted ? 'Found the existing' : 'Created'} DRAFT invoice ${r.number} in Xero (${r.org}) for ${f.orderRef}`)
+    await finish({ ...f.draft, state: 'done', invoiceId: r.id, invoiceNumber: r.number, org: r.org, warnings: r.warnings.length ? r.warnings : undefined, at: nowOf(d).toISOString(), reason: undefined, details: undefined, field: undefined, debug: undefined }, `${r.adopted ? 'Found the existing' : 'Created'} DRAFT invoice ${r.number} in Xero (${r.org}) for ${f.orderRef}`)
     return
   }
   if (!r.retry) return void (await block(r.error, { details: r.details, field: r.field, debug: r.debug, rejected: r.rejected }))

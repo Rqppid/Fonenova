@@ -30,6 +30,7 @@ function offer(o: { test?: boolean; receivedHoursAgo?: number; totalCents?: numb
     id: 'o1', status: 'accepted',
     source: { gmailMessageId: 'm1', threadId: 't1', rfcMessageId: '<abc@mobileone.info>', from: 'Mobile One Trade <bv@mobileone.info>', to: 'info@fonenova.com', subject: 'Offer 12 Nov', receivedAt: HOURS(o.receivedHoursAgo ?? 5) },
     text: '', lines: [{ id: 'l1', model: 'iPhone 16', storage: '128GB', grade: 'A', qty: 10, unitCostCents: 45_000, sourceText: 'x', note: null }],
+    shipping: { mobileOneCents: 0, source: 'none', sourceText: null },
     pricing: { clientId: send.clientId, marginCents: 700, overrides: {}, ackLow: false, pricedAt: HOURS(3) },
     sends: [send], createdAt: HOURS(6), updatedAt: HOURS(1), audit: [],
   }
@@ -38,7 +39,7 @@ function offer(o: { test?: boolean; receivedHoursAgo?: number; totalCents?: numb
 function setup(o: Offer, opts: { allowReal?: boolean; xeroOk?: boolean; isDemo?: boolean; replied?: boolean | 'throw'; replyFails?: number; xeroNumbers?: string[]; known?: string[] } = {}) {
   const store = memStore()
   store.data.set('offers', [o])
-  store.data.set('offers:clients', seedClients().map((c) => (c.id === 'c_test' ? { ...c, xeroContactId: '11111111-2222-3333-4444-555555555555' } : c)))
+  store.data.set('offers:clients', seedClients().map((c) => (c.id === 'c_test' ? { ...c, xeroContactId: '11111111-2222-3333-4444-555555555555' } : c.id === 'c_wave' ? { ...c, termsConfirmed: true } : c)))
   const sent: ReplyMessage[] = []
   const pings: string[] = []
   const created: DraftBody[] = []
@@ -51,7 +52,7 @@ function setup(o: Offer, opts: { allowReal?: boolean; xeroOk?: boolean; isDemo?:
     async createDraft(b) { if (numbers.includes(b.InvoiceNumber)) throw new DuplicateInvoiceNumber(); created.push(b); numbers.push(b.InvoiceNumber); return { id: `inv-${b.InvoiceNumber}`, number: b.InvoiceNumber, status: 'DRAFT' } },
   }
   const d: FulfilDeps = {
-    store, now: NOW, allowReal: opts.allowReal ?? true, ownerAddress: 'owner@example.test',
+    store, now: NOW, allowReal: opts.allowReal ?? true, allowLiveXero: true, ownerAddress: 'owner@example.test',
     notify: async (t) => { pings.push(t); return true },
     knownOrderIds: async () => opts.known ?? ['FN-ORD-014', 'FN-ORD-015'],
     xero: () => (opts.xeroOk === false ? null : api),

@@ -216,6 +216,19 @@ unreadable, check failed (the store did not answer: nothing was disconnected) or
 Real clients stay switched off until the order and invoice steps exist (`OFFERS_ALLOW_REAL_SEND`
 unset): until then offers go to the test client only.
 
+### Offers phase 4 follow-ups: shipping, the acceptance email, draft safety, live kept separate
+
+**Shipping.** Mobile One's shipping is read from their email (with the line it came from) and shown on the review screen under "Mobile One's shipping", where you can change it or confirm there is none. It is never assumed: with no figure the offer cannot be priced or sent, and "no shipping" is a tick box you choose. The client is charged Mobile One's shipping x the client's multiplier (default 2, set per client on the Clients screen); when you price the offer you can type a different figure for that client. That one figure is the shipping row on the offer email, on the accept page (inside the total the client accepts) and its own line on the Xero draft: "SHIPPING CHARGES", quantity 1, the same sales account and tax type as the items (200 and NONE, as on invoice 2026047).
+
+**Acceptance email.** When a client accepts, one email goes to info@fonenova.com from the connected Gmail, after the draft has been attempted so it can carry the Xero link: client, offer reference (order reference, Mobile One's subject, offer id), each line (description, quantity, unit price), shipping, total, currency, and the draft (or why there is none). It is claimed before it is sent (`notifiedAt` on the send), so a retried webhook, simultaneous deliveries and the 5-minute check can never send a second one.
+
+**Before a draft is created.** An invoice already in Xero with the same reference is linked and no second one is made (a retry after a timeout adopts it). If the Xero contact has no address the draft is still created and "Add an address in Xero before approving" is shown next to its link. If the same contact was invoiced in the last 14 days, the panel (and the email) say which invoices. A real client's payment terms must be chosen on purpose (Clients screen: 7 days, 14 days, other days or upfront) before the client can stop being a test client, and a draft for a real client with unconfirmed terms is not raised.
+
+**Live is separate from real sending.** Two switches, each its own explicit step, and neither implies the other:
+1. `XERO_WRITE_ALLOW_LIVE=true` lets the write connection create drafts in a live Xero organisation (and the connection itself is made on the Settings card). Without it a live organisation gets no drafts.
+2. `OFFERS_ALLOW_REAL_SEND=true` lets offers go to real clients.
+A real client needs both, and the Send panel says which one is missing. Test offers use only the Xero Demo Company and need neither.
+
 **Try it without a real email:** on the Offers page, **New test offer** makes a clearly marked sample offer (subject "[TEST] Sample offer, not from Mobile One", a TEST badge, a banner). It is reviewed but unpriced. It can only be priced for and sent to a test client: the pricing and the send step both refuse any other client, whatever the screen shows. Up to 3 unanswered test offers at a time; "Not an offer" dismisses one.
 
 ### Offers phase 4: after a client accepts

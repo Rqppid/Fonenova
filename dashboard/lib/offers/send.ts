@@ -14,7 +14,7 @@
 import { getJson, type Store } from '../store'
 import { buildOfferEmail, type OfferEmail } from './email'
 import { seedClients, type Client } from './clients'
-import { priceOffer, publicLines } from './pricing'
+import { priceOffer, pricingInputOf, publicLines } from './pricing'
 import { deletePublicOffer, hashToken, newToken, OFFER_VALID_MS, publicStoreProblem, putPublicOffer, getPublicAnswer, withdrawPublicOffer, type PublicOffer } from './public-store'
 import type { Offer, OfferSend } from './types'
 
@@ -23,6 +23,12 @@ export interface SendDeps {
   mail: (m: { to: string; subject: string; text: string; html: string }) => Promise<{ id: string }>
   /** Real clients stay switched off until the order and invoice steps exist. */
   allowReal: boolean
+  /**
+   * A live Xero organisation is connected and live drafts were switched on (XERO_WRITE_ALLOW_LIVE).
+   * A separate step from `allowReal`: neither one implies the other, and a real client needs both,
+   * so an offer can never be accepted that has nowhere to be invoiced.
+   */
+  liveXeroReady?: boolean
   baseUrl?: string
   now?: Date
   token?: () => string
@@ -64,14 +70,15 @@ export async function sendOffer(id: string, d: SendDeps): Promise<Result> {
     const client = clients.find((c) => c.id === o.pricing!.clientId)
     if (!client) return { error: 'The client this offer is priced for no longer exists.' }
     if (o.testOnly && !client.test) return { error: 'This is a test offer: it can only be sent to a test client.' }
-    if (!client.test && !d.allowReal) return { error: 'Offers to real clients are switched on with the next phase (order and invoice). For now, price it for the test client and send it to yourself.' }
+    if (!client.test && !d.liveXeroReady) return { error: 'Offers to real clients also need the live Xero organisation connected and live drafts switched on (XERO_WRITE_ALLOW_LIVE). That is its own step, separate from allowing real client sending.' }
+    if (!client.test && !d.allowReal) return { error: 'Sending to real clients is switched off (OFFERS_ALLOW_REAL_SEND). That is a separate step from the live Xero connection. For now, price it for the test client and send it to yourself.' }
     if (!client.offerEmails.length) return { error: client.test ? 'Add your own email address to the test client first (Offers, Clients).' : `${client.name} has no offer email address (Offers, Clients).` }
-    const r = priceOffer(o.lines, client, { clientId: client.id, marginCents: o.pricing.marginCents, overrides: o.pricing.overrides, ackLow: o.pricing.ackLow })
+    const r = priceOffer(o.lines, client, pricingInputOf(o))
     if (!r.ok) return { error: r.errors[0] ?? 'The price is no longer valid. Price it again.' }
     const expiresAt = new Date(nowDate.getTime() + OFFER_VALID_MS).toISOString()
     snapshot.client = client
-    snapshot.value = { clientName: client.name, lines: publicLines(o.lines, r), units: r.totals.units, totalCents: r.totals.saleCents, issuedAt: now, expiresAt, test: client.test, status: 'open' }
-    snapshot.send = { clientId: client.id, clientName: client.name, to: client.offerEmails, tokenHash: hash, tokenHint: token.slice(0, 6), sentAt: now, expiresAt, totalCents: r.totals.saleCents, units: r.totals.units, test: client.test, gmailMessageId: null, outcome: 'pending' }
+    snapshot.value = { clientName: client.name, lines: publicLines(o.lines, r), units: r.totals.units, shippingCents: r.totals.shippingCents, totalCents: r.totals.grandCents, issuedAt: now, expiresAt, test: client.test, status: 'open' }
+    snapshot.send = { clientId: client.id, clientName: client.name, to: client.offerEmails, tokenHash: hash, tokenHint: token.slice(0, 6), sentAt: now, expiresAt, totalCents: r.totals.grandCents, shippingCents: r.totals.shippingCents, units: r.totals.units, test: client.test, gmailMessageId: null, outcome: 'pending' }
     return { ...o, status: 'sent', sends: [...(o.sends ?? []), snapshot.send], updatedAt: now, audit: log(o, now, `Sending to ${client.name}`) }
   })
   if (!reserved.ok) return reserved

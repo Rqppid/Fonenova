@@ -16,7 +16,7 @@ export async function PUT(req: Request) {
   const stop = await guard(req, { write: true })
   if (stop) return stop
   const body = (await req.json().catch(() => null)) as { clients?: unknown } | null
-  const checked = checkClients(body?.clients)
+  const checked = checkClients(body?.clients, await loadClients())
   if (!checked.ok) return json({ error: checked.error }, 400)
   const keep = new Set(checked.value.map((c) => c.id))
   const gone = (await loadOffers()).find((o) => o.pricing && !keep.has(o.pricing.clientId))

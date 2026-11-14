@@ -6,7 +6,7 @@ import { AfterAcceptance } from '@/components/offers/after-acceptance'
 import { Button } from '@/components/ui/button'
 import { ukTime } from '@/lib/format-uk'
 import type { Client } from '@/lib/offers/clients'
-import { priceOffer, publicLines } from '@/lib/offers/pricing'
+import { priceOffer, pricingInputOf, publicLines } from '@/lib/offers/pricing'
 import type { Offer, OfferSend } from '@/lib/offers/types'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +15,8 @@ const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFrac
 export interface SendSetup {
   /** Offers to real (non-test) clients are switched on. */
   allowReal: boolean
+  /** Live Xero connected and live drafts switched on: a separate step from allowReal. */
+  liveXeroReady?: boolean
   /** Why the public offers store cannot be used (not set up, or a variable looks mistyped), or null. Never contains a value. */
   storeProblem: string | null
   /** Why Gmail cannot send (and how to fix it), or null when it is connected. */
@@ -104,11 +106,13 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
 
   // Ready: only once priced.
   if (offer.status !== 'ready' || !offer.pricing || !client) return history ? <section className="rounded-md border border-line p-4" data-testid="send-panel">{history}</section> : null
-  const r = priceOffer(offer.lines, client, { clientId: client.id, marginCents: offer.pricing.marginCents, overrides: offer.pricing.overrides, ackLow: offer.pricing.ackLow })
+  const r = priceOffer(offer.lines, client, pricingInputOf(offer))
   const pub = publicLines(offer.lines, r)
   const blocked = setup.storeProblem ? setup.storeProblem
     : setup.gmailProblem ? setup.gmailProblem
-    : !client.test && !setup.allowReal ? 'Offers to real clients are switched on with the next phase. Price it for the test client to try the whole journey yourself.'
+    : r.shipping.error ? r.shipping.error
+    : !client.test && !setup.liveXeroReady ? 'Real clients also need the live Xero organisation connected and live drafts switched on (XERO_WRITE_ALLOW_LIVE): a separate step from allowing real client sending. Price it for the test client to try the whole journey.'
+    : !client.test && !setup.allowReal ? 'Sending to real clients is switched off (OFFERS_ALLOW_REAL_SEND): a separate step from the live Xero connection. Price it for the test client to try the whole journey.'
     : !client.offerEmails.length ? (client.test ? 'Add your own email address to the test client first (Offers, Clients).' : `${client.name} has no offer email address (Offers, Clients).`)
     : !r.ok ? 'The price needs attention. Update it above.'
     : null
@@ -121,7 +125,8 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
         <table className="w-full min-w-[420px] text-[13px]">
           <tbody>
             {pub.map((l, i) => <tr key={i}><td className="py-0.5 pr-2">{l.description}</td><td className="px-2 py-0.5 text-right tabular-nums">{l.qty.toLocaleString('en-GB')}</td><td className="px-2 py-0.5 text-right tabular-nums">{eur(l.unitSaleCents)}</td><td className="py-0.5 pl-2 text-right tabular-nums">{eur(l.qty * l.unitSaleCents)}</td></tr>)}
-            <tr className="border-t border-line font-semibold"><td className="pt-1.5">Total</td><td className="px-2 pt-1.5 text-right tabular-nums">{r.totals.units.toLocaleString('en-GB')}</td><td /><td className="pt-1.5 pl-2 text-right tabular-nums">{eur(r.totals.saleCents)}</td></tr>
+            {r.totals.shippingCents > 0 && <tr data-testid="send-shipping"><td className="py-0.5 pr-2">Shipping</td><td /><td /><td className="py-0.5 pl-2 text-right tabular-nums">{eur(r.totals.shippingCents)}</td></tr>}
+            <tr className="border-t border-line font-semibold"><td className="pt-1.5">Total</td><td className="px-2 pt-1.5 text-right tabular-nums">{r.totals.units.toLocaleString('en-GB')}</td><td /><td className="pt-1.5 pl-2 text-right tabular-nums">{eur(r.totals.grandCents)}</td></tr>
           </tbody>
         </table>
       </div>

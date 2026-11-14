@@ -46,7 +46,7 @@ const clients = (): Client[] => seedClients().map((c) => (c.id === 'c_test' ? { 
 const send1 = (p: Partial<OfferSend> = {}): OfferSend => ({ clientId: 'c_test', clientName: 'Test client (my own inbox)', to: ['buyer@example.test'], tokenHash: 'a'.repeat(64), tokenHint: 'abc123', sentAt: '2026-11-14T09:00:00.000Z', expiresAt: '2026-11-15T09:00:00.000Z', totalCents: 119_420_50, units: 350, test: true, gmailMessageId: 'gm1', outcome: 'pending', ...p })
 const offer = (p: Partial<Offer> = {}): Offer => ({
   id: 'of_n12', status: 'sent', source: { gmailMessageId: 'n12', threadId: 't', rfcMessageId: null, from: 'Mobile One <supplier@example.test>', to: 'owner@example.test', subject: 'Offer', receivedAt: '2026-11-12T10:29:42Z' },
-  text: '', lines: nov12, pricing: { clientId: 'c_test', marginCents: 700, overrides: { c3c3c3: 800 }, ackLow: false, pricedAt: '2026-11-13T12:00:00Z' }, sends: [send1()], createdAt: '', updatedAt: '', audit: [], ...p,
+  text: '', lines: nov12, shipping: { mobileOneCents: 0, source: 'none', sourceText: null }, pricing: { clientId: 'c_test', marginCents: 700, overrides: { c3c3c3: 800 }, ackLow: false, pricedAt: '2026-11-13T12:00:00Z' }, sends: [send1()], createdAt: '', updatedAt: '', audit: [], ...p,
 })
 
 beforeEach(async () => {

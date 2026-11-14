@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CircleAlert, CircleCheck, Clock, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { xeroDraftUrl } from '@/lib/offers/xero-url'
 import type { Offer } from '@/lib/offers/types'
 import { cn } from '@/lib/utils'
 
@@ -77,7 +78,8 @@ export function AfterAcceptance({ offer }: { offer: Offer }) {
           {d.state === 'done' && (
             <p>
               Draft <strong className="text-ink">{d.invoiceNumber}</strong> created{d.org ? ` in ${d.org}` : ''}. It is a draft only: approve and send it in Xero for now.{' '}
-              {d.invoiceId && <a className="inline-flex items-center gap-0.5 text-navy underline" href={`https://go.xero.com/app/invoicing/view/${encodeURIComponent(d.invoiceId)}`} target="_blank" rel="noreferrer">Open in Xero<ExternalLink className="h-3 w-3" aria-hidden /></a>}
+              {d.invoiceId && <a className="inline-flex items-center gap-0.5 text-navy underline" href={xeroDraftUrl(d.invoiceId)} target="_blank" rel="noreferrer">Open in Xero<ExternalLink className="h-3 w-3" aria-hidden /></a>}
+              {(d.warnings ?? []).map((w, i) => <span key={i} className="ml-2 inline-block rounded bg-warn-soft px-1.5 py-0.5 text-[12px] font-medium text-warn" data-testid="draft-warning">{w}</span>)}
             </p>
           )}
           {(d.state === 'pending' || d.state === 'working') && <p>Creating the draft…</p>}

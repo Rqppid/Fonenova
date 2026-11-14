@@ -130,11 +130,17 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
   const [rows, setRows] = useState<Draft[]>(() => offer.lines.map(toDraft))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Mobile One's shipping for the whole offer: read from the email or typed here, never assumed.
+  const [shipText, setShipText] = useState(offer.shipping?.source === 'none' || offer.shipping?.mobileOneCents == null ? '' : (offer.shipping.mobileOneCents / 100).toFixed(2))
+  const [noShip, setNoShip] = useState(offer.shipping?.source === 'none')
+  const shipCents = noShip || shipText.trim() === '' ? null : parseEuro(shipText)
+  const shipBad = !noShip && shipText.trim() !== '' && (shipCents === null || shipCents < 1)
+  const shipDirty = noShip !== (offer.shipping?.source === 'none') || (!noShip && shipCents !== (offer.shipping?.mobileOneCents ?? null))
   const parsed = rows.map(fromDraft)
-  const valid = parsed.every(Boolean)
+  const valid = parsed.every(Boolean) && !shipBad
   const lines = parsed.filter((l): l is OfferLine => !!l)
   const flags = offerFlags(lines)
-  const dirty = JSON.stringify(lines.map(({ sourceText: _s, ...l }) => l)) !== JSON.stringify(offer.lines.map(({ sourceText: _s, ...l }) => l))
+  const dirty = shipDirty || JSON.stringify(lines.map(({ sourceText: _s, ...l }) => l)) !== JSON.stringify(offer.lines.map(({ sourceText: _s, ...l }) => l))
   // Lines and prices can only change before the offer goes to a client.
   const editable = offer.status === 'needs_review' || offer.status === 'ready'
 
@@ -190,10 +196,28 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         </table>
       </div>
 
+      <div className="space-y-1.5 rounded-md border border-line p-3 text-[13px]" data-testid="shipping-review">
+        <p className="font-medium text-ink">Mobile One&apos;s shipping (for the whole offer)</p>
+        {editable ? (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2"><span className="text-ink-2">€</span><input aria-label="Mobile One shipping" inputMode="decimal" disabled={noShip} value={shipText} onChange={(e) => setShipText(e.target.value)} placeholder="e.g. 120.00" className={cn('h-9 w-32 rounded-md border bg-surface px-2 text-right text-[13px] disabled:opacity-50', shipBad ? 'border-loss' : 'border-line')} /></label>
+              <label className="flex items-center gap-1.5 text-ink-2"><input type="checkbox" checked={noShip} onChange={(e) => setNoShip(e.target.checked)} />There is no shipping on this offer</label>
+            </div>
+            {shipBad && <p className="text-[12.5px] text-loss">Enter an amount like 120.00</p>}
+          </>
+        ) : (
+          <p className="text-ink">{offer.shipping?.source === 'none' ? 'No shipping' : offer.shipping?.mobileOneCents != null ? eur(offer.shipping.mobileOneCents) : 'not entered'}</p>
+        )}
+        {offer.shipping?.source === 'email' && offer.shipping.sourceText && <p className="text-[12.5px] text-ink-2" data-testid="shipping-source">Read from the email: &quot;{offer.shipping.sourceText}&quot;</p>}
+        {offer.shipping?.source === 'manual' && <p className="text-[12.5px] text-ink-2">Entered by you.</p>}
+        {!noShip && shipCents === null && !shipBad && <p className="text-warn" data-testid="shipping-needed">The email did not state a shipping amount. Enter it (or confirm there is none) before this offer can be priced and sent. It is never assumed to be zero.</p>}
+        {!noShip && shipCents !== null && <p className="text-[12.5px] text-ink-2">The client is charged this × their multiplier (2 unless set otherwise on the client). You can change that figure when you price the offer.</p>}
+      </div>
       {error && <p role="alert" className="rounded-md border border-loss/30 bg-loss-soft px-3 py-2 text-[13px] text-loss">Not saved: {error}</p>}
       <div className="flex flex-wrap gap-2">
         {editable && <Button size="sm" variant="outline" onClick={() => setRows([...rows, { id: Math.random().toString(16).slice(2, 14).padEnd(12, '0'), model: '', storage: '', grade: '', qty: '', cost: '', sourceText: '', note: null }])}><Plus className="h-4 w-4" aria-hidden />Add line</Button>}
-        {editable && <Button size="sm" variant="primary" disabled={busy || !dirty || !valid} onClick={() => put({ action: 'save', id: offer.id, lines })}>{busy ? 'Saving…' : 'Save changes'}</Button>}
+        {editable && <Button size="sm" variant="primary" disabled={busy || !dirty || !valid} onClick={() => put({ action: 'save', id: offer.id, lines, shipping: { cents: shipCents, none: noShip } })}>{busy ? 'Saving…' : 'Save changes'}</Button>}
         {offer.status === 'needs_review' && <Button size="sm" variant={dirty ? 'outline' : 'primary'} disabled={busy || dirty || !lines.length} title={dirty ? 'Save your changes first' : undefined} onClick={() => put({ action: 'status', id: offer.id, status: 'ready' })}>Mark reviewed</Button>}
         {offer.status === 'ready' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Back to review</Button>}
         {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>}

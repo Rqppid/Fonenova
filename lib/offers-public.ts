@@ -19,6 +19,9 @@ export interface PublicOffer {
   clientName: string
   lines: { description: string; qty: number; unitSaleCents: number }[]
   units: number
+  /** Shipping in cents, already inside `totalCents`. Absent on offers sent before shipping existed. */
+  shippingCents?: number
+  /** Items plus shipping: what the client pays. */
   totalCents: number
   issuedAt: string
   expiresAt: string

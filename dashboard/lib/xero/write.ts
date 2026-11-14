@@ -220,6 +220,20 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       if (found.length === 0) found.push('Checked the currency, tax type, account, contact and branding theme: all exist. The message from Xero above is the cause.')
       return found
     },
+    async contactCheck(contactId: string, sinceDate: string) {
+      const cRes = await call(`/Contacts/${encodeURIComponent(contactId)}`)
+      let hasAddress: boolean | null = null
+      if (cRes.ok) {
+        const addrs = ((await cRes.json()) as { Contacts?: { Addresses?: Record<string, unknown>[] }[] }).Contacts?.[0]?.Addresses ?? []
+        const filled = (a: Record<string, unknown>) => ['AddressLine1', 'AddressLine2', 'AddressLine3', 'AddressLine4', 'City', 'PostalCode'].some((k) => typeof a[k] === 'string' && (a[k] as string).trim() !== '')
+        hasAddress = addrs.some(filled)
+      }
+      const [y, m, d] = sinceDate.split('-').map(Number)
+      const iRes = await call(`/Invoices?ContactIDs=${encodeURIComponent(contactId)}&where=${encodeURIComponent(`Type=="ACCREC" AND Date>=DateTime(${y}, ${m}, ${d})`)}&Statuses=DRAFT,SUBMITTED,AUTHORISED,PAID&summaryOnly=true`)
+      if (!iRes.ok) throw new Error('could not list')
+      const rows = ((await iRes.json()) as { Invoices?: (RawInvoice & { DateString?: string; Reference?: string })[] }).Invoices ?? []
+      return { hasAddress, recent: rows.map((r) => ({ number: String(r.InvoiceNumber ?? ''), date: String(r.DateString ?? '').slice(0, 10), status: String(r.Status ?? ''), reference: String(r.Reference ?? '') })) }
+    },
     async brandingThemes() {
       const res = await call('/BrandingThemes')
       check(res, 'listing branding themes')

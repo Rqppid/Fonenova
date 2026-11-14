@@ -10,6 +10,8 @@ export interface XeroWriteState {
   connected: boolean
   orgName: string | null
   isDemo: boolean | null
+  /** XERO_WRITE_ALLOW_LIVE is on: drafts in a live organisation are allowed. Its own switch, apart from real client sending. */
+  liveAllowed?: boolean
   settings: DraftSettings
 }
 
@@ -75,6 +77,7 @@ export function XeroWriteCard({ state, notice }: { state: XeroWriteState; notice
         ) : state.connected ? (
           <>
             <p className="flex items-center gap-1.5 text-ink" data-testid="xero-write-state"><CircleCheck className="h-4 w-4 text-gain" aria-hidden />Connected to <strong className="font-medium">{state.orgName}</strong>{state.isDemo ? ' · Demo Company: test offers only' : ' · live organisation: real offers only'}</p>
+            {state.isDemo === false && <p className={cn('rounded-md px-3 py-2 text-[13px]', state.liveAllowed ? 'bg-warn-soft text-warn' : 'bg-subtle text-ink-2')} data-testid="live-gate">{state.liveAllowed ? 'Live drafts are ON (XERO_WRITE_ALLOW_LIVE). Real client sending is a separate switch (OFFERS_ALLOW_REAL_SEND).' : 'This is a live organisation, but live drafts are OFF: nothing will be created in it. Turning them on is its own step (XERO_WRITE_ALLOW_LIVE in Vercel), separate from real client sending (OFFERS_ALLOW_REAL_SEND).'}</p>}
             <div className="flex flex-wrap gap-2">
               <a href="/xero-write/connect" className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink">Connect a different organisation</a>
               <button type="button" onClick={disconnect} disabled={busy} className="inline-flex h-9 items-center rounded-md border border-line px-3 text-[13px] font-medium text-ink-2 hover:text-ink disabled:opacity-50">Disconnect</button>

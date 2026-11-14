@@ -7,12 +7,14 @@ import 'server-only'
 import crypto from 'node:crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { ASK_MODEL } from '../ask/run'
-import type { OfferLine } from './types'
+import type { OfferLine, OfferShipping } from './types'
 
 export interface ParsedOffer {
   isOffer: boolean
   reason: string
   lines: OfferLine[]
+  /** Mobile One's shipping as written in the email, or null when the email states none. Never guessed. */
+  shipping?: OfferShipping | null
 }
 
 const orNull = (description: string) => ({ anyOf: [{ type: 'string' }, { type: 'null' }], description })
@@ -24,10 +26,12 @@ export const RECORD_OFFER = {
   input_schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['is_offer', 'reason', 'lines'],
+    required: ['is_offer', 'reason', 'shipping_eur', 'shipping_source_text', 'lines'],
     properties: {
       is_offer: { type: 'boolean', description: 'True only if the email offers stock for sale with prices. False for invoices, IMEI lists, shipping or tracking details, payment matters and replies without new prices.' },
       reason: { type: 'string', description: 'One short sentence: why it is or is not an offer.' },
+      shipping_eur: { anyOf: [{ type: 'number' }, { type: 'null' }], description: 'The total shipping, delivery or freight cost Mobile One charges for this whole offer, in euros, if the email states one (e.g. "Shipping: 120" or "Delivery 85 EUR"). Null if the email states no shipping amount. Never guess, never use 0 for "not stated".' },
+      shipping_source_text: orNull('The exact line of the email the shipping amount came from; null if shipping_eur is null.'),
       lines: {
         type: 'array',
         description: 'One entry per product line offered. Empty when is_offer is false.',
@@ -55,6 +59,7 @@ const SYSTEM = [
   'Decide whether the email is a stock offer with prices, and if so list every product line.',
   'Copy model names, storage, grades, quantities and prices exactly as written. Never correct a typo or guess a missing value: put null and say so in the note.',
   'Prices are per unit in EUR. "Nos", "N0s", "pcs", "pieces" and "units" all mean quantity.',
+  'If the email states a shipping, delivery or freight cost for the offer, record it in shipping_eur and the line it came from; if it states none, use null. Never guess a shipping cost and never use 0 for "not stated". A shipping amount is not a product line.',
   'Ignore greetings, signatures and quoted earlier messages.',
 ].join('\n')
 
@@ -69,10 +74,14 @@ export async function readOffer(text: string, subject: string, client: Anthropic
   })
   const call = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'record_offer')
   if (!call) throw new Error(res.stop_reason === 'refusal' ? 'The reader declined this email' : 'The reader gave no answer')
-  const input = call.input as { is_offer: boolean; reason: string; lines: { model: string; storage: string | null; grade: string | null; quantity: number; unit_cost_eur: number; source_text: string; note: string | null }[] }
+  const input = call.input as { is_offer: boolean; reason: string; shipping_eur?: number | null; shipping_source_text?: string | null; lines: { model: string; storage: string | null; grade: string | null; quantity: number; unit_cost_eur: number; source_text: string; note: string | null }[] }
   return {
     isOffer: !!input.is_offer && input.lines.length > 0,
     reason: String(input.reason ?? ''),
+    // Only a positive, sensible amount counts; anything else is "not stated" and the owner is asked.
+    shipping: input.is_offer && typeof input.shipping_eur === 'number' && Number.isFinite(input.shipping_eur) && input.shipping_eur > 0 && input.shipping_eur <= 100_000
+      ? { mobileOneCents: Math.round(input.shipping_eur * 100), source: 'email', sourceText: input.shipping_source_text?.trim().slice(0, 300) || null }
+      : null,
     lines: (input.is_offer ? input.lines : []).slice(0, 100).map((l) => ({
       id: crypto.randomBytes(6).toString('hex'),
       model: String(l.model).trim().slice(0, 80),
