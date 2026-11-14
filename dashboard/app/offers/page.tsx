@@ -5,7 +5,7 @@ import { OffersTabs } from '@/components/offers/offers-tabs'
 import { OffersView } from '@/components/offers/offers-view'
 import { loadClients } from '@/lib/offers/store'
 import { gmailConfig, gmailConnected } from '@/lib/gmail'
-import { webhookProblem } from '@/lib/offers/env-check'
+import { envValue, webhookProblem } from '@/lib/offers/env-check'
 import { publicStoreProblem } from '@/lib/offers/public-store'
 import { telegramConfigured } from '@/lib/offers/telegram'
 import type { Offer, OffersStatus } from '@/lib/offers/types'
@@ -35,7 +35,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
           allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
           storeProblem: publicStoreProblem(),
           gmailProblem: !gmail ? 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).' : gmail.connected ? null : gmail.message,
-          webhookWarning: !process.env.OFFERS_WEBHOOK_TOKEN ? 'OFFERS_WEBHOOK_TOKEN is not set: you will hear of answers within 5 minutes instead of at once.' : webhookProblem(process.env.OFFERS_WEBHOOK_TOKEN),
+          webhookWarning: !envValue(process.env.OFFERS_WEBHOOK_TOKEN) ? 'OFFERS_WEBHOOK_TOKEN is not set: you will hear of answers within 5 minutes instead of at once.' : webhookProblem(process.env.OFFERS_WEBHOOK_TOKEN),
         }}
         offers={offers ?? []}
         status={status}

@@ -61,11 +61,12 @@ type Cmd = (string | number)[]
  * spaces, a half address) counts as not set up, so visitors get the plain "not available" page.
  */
 export function publicStoreConfigured(): boolean {
-  const url = process.env.OFFERS_PUBLIC_REDIS_URL
-  const token = process.env.OFFERS_PUBLIC_REDIS_TOKEN
+  // A space or line break at the start or end is harmless (a re-paste leaves one): trimmed. Inside the value it is a mistake.
+  const url = process.env.OFFERS_PUBLIC_REDIS_URL?.trim()
+  const token = process.env.OFFERS_PUBLIC_REDIS_TOKEN?.trim()
   if (!url || !token) return false
   const junk = (v: string) => /\s/.test(v) || /["'`]/.test(v) || /=(?!=*$)/.test(v)
-  if (junk(url) || junk(token) || /bearer|UPSTASH_REDIS|REST_URL|REST_TOKEN/i.test(token) || token.length < 20) return false
+  if (junk(url) || junk(token) || token.length < 20) return false
   try {
     return new URL(url).protocol === 'https:'
   } catch {
@@ -78,9 +79,9 @@ async function run(cmd: Cmd): Promise<unknown> {
   if (!publicStoreConfigured()) throw new Error('The offers store is not set up')
   let res: Response
   try {
-    res = await fetch(process.env.OFFERS_PUBLIC_REDIS_URL!, {
+    res = await fetch(process.env.OFFERS_PUBLIC_REDIS_URL!.trim(), {
       method: 'POST',
-      headers: { authorization: `Bearer ${process.env.OFFERS_PUBLIC_REDIS_TOKEN}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${process.env.OFFERS_PUBLIC_REDIS_TOKEN!.trim()}`, 'content-type': 'application/json' },
       body: JSON.stringify(cmd),
       cache: 'no-store',
       signal: AbortSignal.timeout(8_000),
@@ -149,7 +150,7 @@ export function cleanRemarks(v: unknown): string | null {
 
 /** Tell the dashboard an answer arrived. Only the hash is sent; the dashboard reads the answer itself. Never throws. */
 export async function notifyDashboard(hash: string): Promise<void> {
-  const token = process.env.OFFERS_WEBHOOK_TOKEN
+  const token = process.env.OFFERS_WEBHOOK_TOKEN?.trim()
   if (!token) return
   try {
     await fetch(process.env.OFFERS_WEBHOOK_URL ?? 'https://dashboard.fonenova.com/api/offers/answered', {

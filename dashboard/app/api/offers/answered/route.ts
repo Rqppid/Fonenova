@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { bearerOk } from '@/lib/bearer'
-import { webhookProblem } from '@/lib/offers/env-check'
+import { envValue, webhookProblem } from '@/lib/offers/env-check'
 import { fulfilDeps } from '@/lib/offers/fulfil-server'
 import { fulfilOffer } from '@/lib/offers/fulfil'
 import { ownerEmail } from '@/lib/offers/owner-email'
@@ -20,8 +20,9 @@ const json = (body: unknown, status = 200) => NextResponse.json(body, { status, 
  */
 export async function POST(req: Request) {
   // Unset, or set to something mistyped: treated as not configured (the 5-minute check still picks answers up).
-  if (!process.env.OFFERS_WEBHOOK_TOKEN || webhookProblem(process.env.OFFERS_WEBHOOK_TOKEN)) return json({ error: 'not configured' }, 503)
-  if (!bearerOk(req.headers.get('authorization'), process.env.OFFERS_WEBHOOK_TOKEN)) return json({ error: 'unauthorized' }, 401)
+  const secret = envValue(process.env.OFFERS_WEBHOOK_TOKEN)
+  if (!secret || webhookProblem(secret)) return json({ error: 'not configured' }, 503)
+  if (!bearerOk(req.headers.get('authorization'), secret)) return json({ error: 'unauthorized' }, 401)
   const body = (await req.json().catch(() => null)) as { hash?: unknown } | null
   if (!body || typeof body.hash !== 'string' || !/^[0-9a-f]{64}$/.test(body.hash)) return json({ error: 'invalid' }, 400)
   try {
