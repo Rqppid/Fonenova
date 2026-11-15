@@ -40,6 +40,7 @@ export type StoreKey =
   | 'offers:clients'
   | 'xero-write:tokens'
   | 'offers:draft-settings'
+  | 'offers:golive'
 
 export type ReadResult = { kind: 'ok'; value: unknown } | { kind: 'missing' } | { kind: 'invalid'; message: string }
 
@@ -86,6 +87,7 @@ const FILES: Record<StoreKey, string> = {
   'offers:clients': 'offers/clients.json',
   'xero-write:tokens': 'xero/write-tokens.json',
   'offers:draft-settings': 'offers/draft-settings.json',
+  'offers:golive': 'offers/golive.json',
 }
 
 const SECRET_KEYS = new Set<StoreKey>(['xero:tokens', 'xero-write:tokens', 'onedrive:tokens', 'gmail:tokens'])

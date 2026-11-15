@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Send } from 'lucide-react'
 import { AfterAcceptance } from '@/components/offers/after-acceptance'
+import type { InvoiceSetup } from '@/components/offers/invoice-steps'
+import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import { Button } from '@/components/ui/button'
 import { ukTime } from '@/lib/format-uk'
 import type { Client } from '@/lib/offers/clients'
@@ -17,6 +19,9 @@ export interface SendSetup {
   allowReal: boolean
   /** Live Xero connected and live drafts switched on: a separate step from allowReal. */
   liveXeroReady?: boolean
+  /** The switches and connections behind approve, send and file, and the bill suggestions per offer. */
+  invoice?: InvoiceSetup
+  bills?: Record<string, BillCandidate[]>
   /** Why the public offers store cannot be used (not set up, or a variable looks mistyped), or null. Never contains a value. */
   storeProblem: string | null
   /** Why Gmail cannot send (and how to fix it), or null when it is connected. */
@@ -96,7 +101,7 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
       <section aria-labelledby="send-title" className="space-y-3 rounded-md border border-line p-4" data-testid="send-panel">
         <h3 id="send-title" className="text-[14px] font-semibold text-ink capitalize">{offer.status}</h3>
         <p className="text-[13px] text-ink">{text}</p>
-        {offer.status === 'accepted' && <AfterAcceptance offer={offer} />}
+        {offer.status === 'accepted' && <AfterAcceptance offer={offer} invoice={setup.invoice} bills={setup.bills?.[offer.id]} />}
         {errorBox}
         {offer.status !== 'accepted' && <Button size="sm" variant="primary" disabled={busy} onClick={() => act('unlock')}>{busy ? 'Working…' : 'Unlock to reprice'}</Button>}
         {history}

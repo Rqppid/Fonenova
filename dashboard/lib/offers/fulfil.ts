@@ -46,14 +46,16 @@ export const MAX_OFFER_AGE_MS = 48 * 3_600_000
 const STALE_MS = 10 * 60_000
 const ALERT_AT = 3
 
-const log = (o: Offer, now: string, what: string) => [...o.audit, { at: now, what }].slice(-60)
+export const log = (o: Offer, now: string, what: string) => [...o.audit, { at: now, what }].slice(-60)
 const nowOf = (d: FulfilDeps) => d.now ?? new Date()
 const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const link = (d: FulfilDeps, o: Offer) => (d.dashboardUrl ? { label: 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
+/** The Telegram button: once the draft is ready it says what to do, and opens the offer on the dashboard (it never approves by itself). */
+const approveLink = (d: FulfilDeps, o: Offer) => (d.dashboardUrl ? { label: o.fulfilment?.draft.state === 'done' ? 'Approve on dashboard' : 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
 const acceptedSend = (o: Offer): OfferSend | undefined => (o.sends ?? []).find((s) => s.outcome === 'accepted')
 
-async function mutate(store: Store, id: string, fn: (o: Offer) => Offer | null): Promise<Offer | null> {
+export async function mutate(store: Store, id: string, fn: (o: Offer) => Offer | null): Promise<Offer | null> {
   return store.withLock('offers', async () => {
     const offers = (await getJson<Offer[]>(store, 'offers')) ?? []
     const i = offers.findIndex((o) => o.id === id)
@@ -66,7 +68,7 @@ async function mutate(store: Store, id: string, fn: (o: Offer) => Offer | null):
   })
 }
 
-async function load(store: Store, id: string): Promise<Offer | null> {
+export async function load(store: Store, id: string): Promise<Offer | null> {
   return ((await getJson<Offer[]>(store, 'offers')) ?? []).find((o) => o.id === id) ?? null
 }
 
@@ -200,7 +202,7 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
 function summary(o: Offer): string {
   const f = o.fulfilment!
   const reply = { sent: f.test ? 'test reply sent to your inbox' : 'replied to Mobile One', held: 'reply to Mobile One is waiting for your OK', failed: 'reply to Mobile One failed (retrying)', pending: 'reply pending', sending: 'reply sending' }[f.reply.state]
-  const draft = f.draft.state === 'done' ? `draft invoice ${f.draft.invoiceNumber} is in Xero${f.draft.org ? ` (${f.draft.org})` : ''}` : f.draft.state === 'blocked' ? `draft invoice is blocked: ${f.draft.reason}` : f.draft.state === 'failed' ? 'draft invoice failed (retrying)' : 'draft invoice pending'
+  const draft = f.draft.state === 'done' ? `invoice ${f.draft.invoiceNumber} is ready to check and approve (draft in Xero${f.draft.org ? `, ${f.draft.org}` : ''}; nothing approved or sent)` : f.draft.state === 'blocked' ? `draft invoice is blocked: ${f.draft.reason}` : f.draft.state === 'failed' ? 'draft invoice failed (retrying)' : 'draft invoice pending'
   return `${f.test ? '[TEST] ' : ''}${f.orderRef}: ${reply}; ${draft}.`
 }
 
@@ -225,7 +227,7 @@ export async function fulfilOffer(offerId: string, d: FulfilDeps): Promise<void>
   await runReply(offerId, d)
   await runDraft(offerId, d)
   const after = await load(d.store, offerId)
-  if (after?.fulfilment && started) await d.notify(summary(after), link(d, after))
+  if (after?.fulfilment && started) await d.notify(summary(after), approveLink(d, after))
 }
 
 /** The owner pressed OK on a held reply. */
@@ -273,7 +275,7 @@ export async function sweepFulfilment(d: FulfilDeps): Promise<{ tried: number; c
     const nf = after?.fulfilment
     if (nf && ((f.reply.state !== 'sent' && nf.reply.state === 'sent') || (f.draft.state !== 'done' && nf.draft.state === 'done'))) {
       out.completed++
-      await d.notify(summary(after!), link(d, after!))
+      await d.notify(summary(after!), approveLink(d, after!))
     }
   }
   return out

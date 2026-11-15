@@ -231,6 +231,19 @@ A real client needs both, and the Send panel says which one is missing. Test off
 
 **Try it without a real email:** on the Offers page, **New test offer** makes a clearly marked sample offer (subject "[TEST] Sample offer, not from Mobile One", a TEST badge, a banner). It is reviewed but unpriced. It can only be priced for and sent to a test client: the pricing and the send step both refuse any other client, whatever the screen shows. Up to 3 unanswered test offers at a time; "Not an offer" dismisses one.
 
+### Offers phase 5 and 6: bill, approve, send, file, go-live
+
+After the draft exists, the offer shows an **Invoice** block with four steps. Every one is a separate click with its own tick box, none ever happens by itself, and the server re-checks everything.
+
+1. **Mobile One's bill** (real orders only): unpaired Mobile One euro bills from the synced Xero data that come to about what the order cost (the items at Mobile One's prices plus Mobile One's shipping, within 1%). Pair one and it is saved as a Xero pair (order, draft invoice, bill), so the Matching page and profit figures use it.
+2. **Approve in Xero.** Needs the tick, then checks: the draft is still a draft, in the organisation it was made in, in euros, for the total the client accepted, for the same contact, and the contact has an address ("Add an address in Xero before approving"). A live organisation also needs **`OFFERS_ALLOW_APPROVE=true`** (its own switch) and `XERO_WRITE_ALLOW_LIVE`. A test invoice is never approved in the live organisation. Claimed first, so three clicks approve once; the result is read back from Xero.
+3. **Send.** Xero emails the approved invoice to the contact's email address, which must be one of the client's invoice emails. A real client needs `OFFERS_ALLOW_REAL_SEND` and `XERO_WRITE_ALLOW_LIVE`; a test invoice is only ever sent in the Demo Company, to the owner's own address. An unknown outcome is never retried by itself: the next press checks Xero's "sent" flag first.
+4. **File the PDF on OneDrive.** After a successful send (or by button once approved): `<number>.pdf` into the client's folder, create-only (an existing file is left alone, nothing is ever deleted, never the ledger or VAT folders). Needs **`INVOICE_FILING_DIRS`**, JSON of OneDrive-relative paths: `{"wave":"...","telecom":"...","other":"..."}`, and OneDrive connected with write access. Not set: the step says so and nothing is filed. Use the folder names Make filed into.
+
+Telegram says "Invoice 2026051 ready to check and approve" with an **Approve on dashboard** button that only opens the offer.
+
+**Go-live checklist** (Offers, Go-live checklist): the system and real clients are checked from live state (connections, the three separate switches, theme, Gmail, Telegram, OneDrive, a whole test journey, each real client's terms, Xero contact and emails); the things only you can confirm (contacts complete in Xero, company details, accountant told, Invoice2go and Make off, test clutter cleared) are tick boxes that are remembered. It never switches anything on.
+
 ### Offers phase 4: after a client accepts
 
 When a client accepts, Quay Pilot does three things (and tells you on Telegram):

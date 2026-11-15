@@ -40,6 +40,22 @@ export interface DraftBody {
 
 export interface XeroInvoiceRef { id: string; number: string; status: string }
 
+/** An invoice as Xero holds it right now, for the checks before approving or sending. */
+export interface XeroInvoiceDetail {
+  id: string
+  number: string
+  status: string
+  reference: string
+  currency: string
+  totalCents: number
+  contactId: string | null
+  /** The contact's email as Xero has it (Xero's own email goes only there). */
+  contactEmail: string | null
+  hasAddress: boolean | null
+  /** Xero has already emailed it. */
+  sentToContact: boolean
+}
+
 export interface XeroApi {
   organisation(): Promise<{ name: string; isDemo: boolean; id?: string }>
   /** Every sales (ACCREC) invoice number in the organisation, whatever its status. */
@@ -48,6 +64,14 @@ export interface XeroApi {
   createDraft(body: DraftBody, idempotencyKey: string): Promise<XeroInvoiceRef>
   /** After Xero rejected the draft: check the currency, tax type, account, contact and branding theme, and say which is wrong. Best effort. */
   diagnose?(body: DraftBody): Promise<string[]>
+  /** The invoice as Xero holds it now. Null when it does not exist (any more). */
+  getInvoice?(id: string): Promise<XeroInvoiceDetail | null>
+  /** Draft -> approved (AUTHORISED). Nothing else is changed. */
+  approveInvoice?(id: string): Promise<void>
+  /** Xero emails the approved invoice to its contact's email address. */
+  emailInvoice?(id: string): Promise<void>
+  /** The invoice as a PDF (checked to start with %PDF). */
+  invoicePdf?(id: string): Promise<Uint8Array>
   /** The contact's address, and its invoices from the last 14 days (for warnings; best effort, never blocks a draft). */
   contactCheck?(contactId: string, sinceDate: string): Promise<{ hasAddress: boolean | null; recent: { number: string; date: string; status: string; reference: string }[] }>
   /** The organisation's branding themes with their API ids, for the Settings dropdown. */
