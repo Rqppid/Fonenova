@@ -41,7 +41,7 @@ describe('Gmail', () => {
       return url.includes('token') ? Response.json({ access_token: 'new', expires_in: 3600 }) : Response.json({ id: 'm1' })
     }))
     const r = await sendGmail(gmailConfig()!, { subject: 'QuayPilot weekly: €55k overdue', text: 'hi', html: '<p>hi</p>' }, store)
-    expect(r).toEqual({ id: 'm1', to: 'info@fonenova.com', from: 'info@fonenova.com' })
+    expect(r).toEqual({ id: 'm1', threadId: '', to: 'info@fonenova.com', from: 'info@fonenova.com' })
     expect(calls[0].body).toContain('grant_type=refresh_token')
     expect(calls[1].auth).toBe('Bearer new')
     const raw = Buffer.from(JSON.parse(calls[1].body).raw, 'base64url').toString()

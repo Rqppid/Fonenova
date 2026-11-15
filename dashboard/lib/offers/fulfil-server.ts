@@ -1,6 +1,6 @@
 /** The real connections behind lib/offers/fulfil.ts: Gmail, the Xero write app, the ledger. */
 import 'server-only'
-import { gmailConfig, hasReplied, sendGmail } from '../gmail'
+import { getAttachmentBytes, getMessage, getThreadMessages, gmailConfig, hasReplied, sendGmail } from '../gmail'
 import { fileInvoicePdf, filingDirs } from '../onedrive-invoice'
 import { loadSnapshot } from '../xero/client'
 import { saveXeroPairs } from '../data-source'
@@ -47,7 +47,8 @@ export function invoiceDeps(store: Store): InvoiceDeps {
   return {
     ...fulfilDeps(store),
     allowApprove: process.env.OFFERS_ALLOW_APPROVE === 'true',
-    mail: gmailConfig() ? async (m) => { const c = gmailConfig()!; const sent = await sendGmail(c, { to: m.to, subject: m.subject, text: m.text, html: m.html, fromName: 'FoneNova', attachments: m.attachments }, store); return { id: sent.id } } : undefined,
+    mail: gmailConfig() ? async (m) => { const c = gmailConfig()!; const sent = await sendGmail(c, { to: m.to, subject: m.subject, text: m.text, html: m.html, fromName: 'FoneNova', attachments: m.attachments, ...(m.threadId ? { threadId: m.threadId } : {}), ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}) }, store); return { id: sent.id, threadId: sent.threadId } } : undefined,
+    gmailThread: gmailConfig() ? { messages: (t) => getThreadMessages(gmailConfig()!, t, store), file: (m, a) => getAttachmentBytes(gmailConfig()!, m, a, store), rfcId: async (id) => (await getMessage(gmailConfig()!, id, store)).rfcMessageId } : undefined,
     filing: { dirs: filingDirs(), upload: (path, bytes) => fileInvoicePdf(path, bytes, store) },
     bills: async () => ({ bills: ((await loadSnapshot())?.invoices ?? []).filter((i) => i.kind === 'bill'), pairs: await loadXeroPairs() }),
     savePair: async (p) => {
