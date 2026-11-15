@@ -385,9 +385,15 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       check(res, 'approving the invoice')
     },
     async emailInvoice(id: string) {
-      const res = await call(`/Invoices/${encodeURIComponent(id)}/Email`, { method: 'POST' })
-      if (res.status === 400) throw new Error(`Xero would not email it: ${parseXeroValidation(await res.text().catch(() => '')).messages[0] ?? 'no reason given'}`)
-      check(res, 'emailing the invoice')
+      // Xero's documented request is an empty JSON object; the contact's own email address is used.
+      const res = await call(`/Invoices/${encodeURIComponent(id)}/Email`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      if (res.ok) return
+      // Say what Xero said (its own words only, scrubbed), so a failure can be understood instead of guessed at.
+      const text = await res.text().catch(() => '')
+      const why = parseXeroValidation(text).messages[0] ?? (text.trim().startsWith('{') ? '' : scrub(text, 120))
+      xeroLog({ event: 'xero-write-email-failed', status: res.status, body: scrub(text, 600) })
+      if (res.status === 401 || res.status === 403) throw new Error(`Xero refused to email it (${res.status}). Reconnect the Xero write connection in Settings.`)
+      throw new Error(`Xero would not email it (${res.status})${why ? `: ${why}` : ''}`)
     },
     async invoicePdf(id: string) {
       const res = await call(`/Invoices/${encodeURIComponent(id)}`, { headers: { accept: 'application/pdf' } })

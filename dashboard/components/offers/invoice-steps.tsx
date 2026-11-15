@@ -73,7 +73,10 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
 
   return (
     <div className="space-y-2" data-testid="invoice-steps">
-      <h4 className="text-[13px] font-semibold text-ink">Invoice · {f.draft.invoiceNumber}</h4>
+      <div className="flex flex-wrap items-center gap-3">
+        <h4 className="text-[13px] font-semibold text-ink">Invoice · {f.draft.invoiceNumber}</h4>
+        {approve?.state !== 'done' && <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => act('draft_recheck')} data-testid="recheck-button">{busy === 'draft_recheck' ? 'Checking…' : 'Re-check in Xero'}</Button>}
+      </div>
       <ul className="divide-y divide-line">
         {real && (
           <Row tone={f.bill ? 'ok' : 'wait'} title="Mobile One's bill" testId="step-bill">

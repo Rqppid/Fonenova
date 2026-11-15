@@ -1,4 +1,4 @@
-import { checkDraftSettings } from '@/lib/offers/draft'
+import { checkDraftSettings, loadDraftSettings } from '@/lib/offers/draft'
 import { guard, paymentsJson as json } from '@/lib/payments-guard'
 import { getStore } from '@/lib/store'
 import { xeroWriteApi, xeroWriteConfig, xeroWriteStatus } from '@/lib/xero/write'
@@ -19,6 +19,18 @@ export async function PUT(req: Request) {
       return json({ error: `That id is not a branding theme in the connected Xero organisation. Press "Load themes" and pick one: ${themes.map((t) => t.name).join(', ') || 'none found'}.` }, 400)
     }
   }
-  await getStore().set('offers:draft-settings', checked.value)
-  return json({ ok: true, settings: checked.value })
+  // A theme id belongs to one Xero organisation: it is saved for the organisation drafts go to now, never for another.
+  const store = getStore()
+  const status = await xeroWriteStatus(store)
+  const wanted = checked.value.brandingThemeId
+  if (wanted && !status.selectedTenantId) return json({ error: 'Choose the Xero organisation for drafts first: a branding theme belongs to one organisation.' }, 400)
+  const saved = await loadDraftSettings(store)
+  const ids = { ...(saved.brandingThemeIds ?? {}) }
+  if (status.selectedTenantId) {
+    if (wanted) ids[status.selectedTenantId.toLowerCase()] = wanted
+    else delete ids[status.selectedTenantId.toLowerCase()]
+  }
+  const next = { taxType: checked.value.taxType, accountCode: checked.value.accountCode, brandingThemeId: status.isDemo === false ? wanted : saved.brandingThemeId, brandingThemeIds: ids }
+  await store.set('offers:draft-settings', next)
+  return json({ ok: true, settings: next })
 }

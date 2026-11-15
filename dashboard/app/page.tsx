@@ -15,7 +15,7 @@ import { attentionItems } from '@/lib/attention'
 import { allocateCredits, expenseSummary } from '@/lib/metrics'
 import { draftsAwaiting } from '@/lib/xero/pairing'
 import { liveView } from '@/lib/live-view'
-import { loadDraftSettings } from '@/lib/offers/draft'
+import { loadDraftSettings, themeFor } from '@/lib/offers/draft'
 import { getStore } from '@/lib/store'
 import { xeroWriteStatus } from '@/lib/xero/write'
 
@@ -65,7 +65,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   }
 
   const { ledger } = result
-  const xeroWrite = { ...(await xeroWriteStatus(getStore())), liveAllowed: process.env.XERO_WRITE_ALLOW_LIVE === 'true', settings: await loadDraftSettings(getStore()) }
+  const xwStatus = await xeroWriteStatus(getStore())
+  const xwSettings = await loadDraftSettings(getStore())
+  // The card shows the theme of the organisation drafts go to now (a theme id belongs to one organisation).
+  const xeroWrite = { ...xwStatus, liveAllowed: process.env.XERO_WRITE_ALLOW_LIVE === 'true', settings: { ...xwSettings, brandingThemeId: xwStatus.selectedTenantId ? themeFor(xwSettings, { id: xwStatus.selectedTenantId, isDemo: xwStatus.isDemo === true }) : null } }
   // Work waiting, for the sidebar. Recomputed on every load, so a decided row drops off at once.
   // Same view the dashboard shows: ledger plus Xero orders, with the live Xero checks.
   const merged = liveView(ledger, xero.snapshot, xero.pairs, todayIso())
