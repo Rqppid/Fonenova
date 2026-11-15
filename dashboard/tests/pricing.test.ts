@@ -238,3 +238,26 @@ describe('the price panel and the clients screen', () => {
     expect(html).toMatch(/disabled=""[^>]*title="An offer is priced for this client"|title="An offer is priced for this client"[^>]*disabled=""/)
   })
 })
+
+describe('per-line margins for a manual client', () => {
+  const lineMargins = Object.fromEntries(nov12.map((l) => [l.id, 700]))
+  it('are enough on their own when every line has one: no margin for the whole offer is needed', () => {
+    const r = priceOffer(nov12, wave, input({ marginCents: null, overrides: lineMargins }))
+    expect(r.ok).toBe(true)
+    expect(r.lines.map((l) => l.marginCents)).toEqual([700, 700, 700])
+    expect(r.totals.saleCents).toBe(119_420_50 - 50 * 100) // the S25 Ultra line is +700 here, not +800
+  })
+  it('are not enough when a line has none and there is no margin for the whole offer', () => {
+    const some = { a1a1a1: 700, b2b2b2: 700 }
+    const r = priceOffer(nov12, wave, input({ marginCents: null, overrides: some }))
+    expect(r.ok).toBe(false)
+    expect(r.errors.join(' ')).toContain('Enter the margin per unit')
+  })
+  it('still need to be valid: a bad one on any line blocks, with or without a margin for the whole offer', () => {
+    expect(priceOffer(nov12, wave, input({ marginCents: null, overrides: { ...lineMargins, c3c3c3: 0 } })).ok).toBe(false)
+    expect(priceOffer(nov12, wave, input({ marginCents: 700, overrides: { ...lineMargins, c3c3c3: 0 } })).ok).toBe(false)
+  })
+  it('an offer with no lines is still refused', () => {
+    expect(priceOffer([], wave, input({ marginCents: null, overrides: {} })).ok).toBe(false)
+  })
+})

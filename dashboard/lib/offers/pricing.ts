@@ -107,7 +107,9 @@ export function priceOffer(lines: readonly OfferLine[], client: Client, input: P
     else if (!validMargin(m)) errors.push('A per-line margin must be between €0.01 and €500.00.')
   }
   const base = client.margin.type === 'fixed' ? client.margin.perUnitCents : input.marginCents
-  if (client.margin.type === 'manual' && !validMargin(base)) errors.push('Enter the margin per unit for this offer (between €0.01 and €500.00).')
+  // A manual client needs a margin for every line: either the one for the whole offer, or one typed on each line.
+  const everyLineOwn = lines.length > 0 && lines.every((l) => validMargin(input.overrides?.[l.id]))
+  if (client.margin.type === 'manual' && !validMargin(base) && !everyLineOwn) errors.push('Enter the margin per unit for this offer (between €0.01 and €500.00), or a margin on every line.')
 
   const priced: PricedLine[] = lines.map((l) => {
     const o = locked ? undefined : input.overrides?.[l.id]
