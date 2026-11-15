@@ -50,16 +50,20 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
   const f = offer.fulfilment
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** What the last action answered when it worked, so a click is never silent (the re-check used to show nothing). */
+  const [notice, setNotice] = useState<string | null>(null)
   const [ticks, setTicks] = useState({ approve: false, send: false })
   if (!f || f.draft.state !== 'done') return null
 
   async function act(action: string, extra: object = {}) {
     setBusy(action)
     setError(null)
+    setNotice(null)
     const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, id: offer.id, ...extra }) }).catch(() => null)
-    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string } | null
     setBusy(null)
-    if (!(res?.ok && out?.ok)) setError(out?.error ?? 'Could not do that. Check your connection and try again.')
+    if (res?.ok && out?.ok) setNotice(out.message ?? null)
+    else setError(out?.error ?? 'Could not do that. Check your connection and try again.')
     router.refresh()
   }
 
@@ -112,7 +116,7 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
 
         <Row tone={send?.state === 'done' ? 'ok' : send?.state === 'blocked' || send?.state === 'failed' ? 'bad' : 'wait'} title="Send the invoice to the client" testId="step-send">
           {send?.state === 'done' ? (
-            <p>Emailed by Xero{send.detail ? ` to ${send.detail}` : ''} {send.at ? ukTime(send.at) : ''}.</p>
+            <p data-testid="send-done">{send.detail?.includes('(Gmail') ? 'Emailed from info@fonenova.com' : 'Emailed by Xero'}{send.detail ? ` to ${send.detail}` : ''} {send.at ? ukTime(send.at) : ''}.</p>
           ) : approve?.state !== 'done' ? (
             <p>Approve it first.</p>
           ) : (
@@ -145,6 +149,7 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
           )}
         </Row>
       </ul>
+      {notice && <p role="status" className="text-[13px] text-gain" data-testid="invoice-notice">{notice}</p>}
       {error && <p role="alert" className="text-[13px] text-loss">{error}</p>}
     </div>
   )

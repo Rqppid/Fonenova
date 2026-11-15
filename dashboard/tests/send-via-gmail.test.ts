@@ -154,3 +154,14 @@ describe('the Settings card shows the organisation it is for', () => {
     expect(card(false, '50f6809e-live')).not.toContain('f9b09cb4-demo')
   })
 })
+
+describe('the Invoice block says what happened', () => {
+  const render = (o: Offer) => renderToString(h(InvoiceSteps, { offer: o, setup: { allowApprove: true, allowReal: true, allowLiveXero: true, filingConfigured: true, orgIsLive: true } })).replace(/<!-- -->/g, '')
+  it('a Gmail send reads "Emailed from info@fonenova.com", a Xero send reads "Emailed by Xero"', () => {
+    const g = offer(); g.fulfilment!.send = { state: 'done', at: HOURS(1), detail: 'info@fonenova.com (Gmail, PDF attached)' }
+    expect(render(g)).toContain('Emailed from info@fonenova.com to info@fonenova.com (Gmail, PDF attached)')
+    expect(render(g)).not.toContain('Emailed by Xero')
+    const x = offer(); x.fulfilment!.send = { state: 'done', at: HOURS(1), detail: 'accounts@wave.example' }
+    expect(render(x)).toContain('Emailed by Xero to accounts@wave.example')
+  })
+})
