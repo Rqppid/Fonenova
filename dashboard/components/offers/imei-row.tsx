@@ -90,7 +90,7 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" disabled={busy !== null} onClick={look} data-testid="imei-find-button">{busy === 'imei_find' ? 'Looking…' : imei ? 'Choose other files' : "Find them in Mobile One's email"}</Button>
-            <input value={thread} onChange={(e) => setThread(e.target.value)} placeholder="Or paste the Gmail link of the email" aria-label="Gmail link of the email with the files" className="min-w-[14rem] flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[13px]" data-testid="imei-thread-input" />
+            <input value={thread} onChange={(e) => setThread(e.target.value)} placeholder="Or paste a Gmail link" aria-label="Gmail link of the email with the files" className="min-w-[14rem] flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[13px]" data-testid="imei-thread-input" />
           </div>
           {found && (
             <div className="space-y-1" data-testid="imei-candidates">
