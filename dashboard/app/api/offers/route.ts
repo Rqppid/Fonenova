@@ -6,7 +6,7 @@ import { gmailConfig, gmailConnected, sendGmail } from '@/lib/gmail'
 import { loadClients } from '@/lib/offers/store'
 import { approveReply, fulfilOffer, retryFulfilment } from '@/lib/offers/fulfil'
 import { fulfilDeps, invoiceDeps } from '@/lib/offers/fulfil-server'
-import { approveInvoice, confirmBill, fileInvoice, sendInvoice } from '@/lib/offers/invoice-flow'
+import { approveInvoice, confirmBill, fileInvoice, recheckDraft, sendInvoice } from '@/lib/offers/invoice-flow'
 import { applyAnswer } from '@/lib/offers/resolve'
 import { sendOffer, unlockOffer, withdrawOffer } from '@/lib/offers/send'
 import { notify } from '@/lib/offers/telegram'
@@ -34,11 +34,12 @@ export async function PUT(req: Request) {
     })
     return 'error' in out ? json({ error: out.error }, 409) : json({ ok: true, offer: out.offer })
   }
-  if (e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'bill_confirm') {
+  if (e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm') {
     const d = invoiceDeps(store)
     const r = e.action === 'invoice_approve' ? await approveInvoice(e.id, d, { confirm: e.confirm })
       : e.action === 'invoice_send' ? await sendInvoice(e.id, d, { confirm: e.confirm })
       : e.action === 'invoice_file' ? await fileInvoice(e.id, d)
+      : e.action === 'draft_recheck' ? await recheckDraft(e.id, d)
       : await confirmBill(e.id, e.billId, d)
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }

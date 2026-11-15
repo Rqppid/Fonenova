@@ -4,7 +4,7 @@
  */
 export type MarginRule = { type: 'fixed'; perUnitCents: number; locked: boolean } | { type: 'manual' }
 export type Terms = { days: number } | 'upfront'
-export type Folder = 'wave' | 'telecom' | 'other'
+export type Folder = 'wave' | 'telecom' | 'tradewise' | 'giglobal' | 'other'
 
 export interface Client {
   id: string
@@ -31,6 +31,8 @@ export interface Client {
 export const FOLDERS: { key: Folder; label: string }[] = [
   { key: 'wave', label: 'Wave Phone folder' },
   { key: 'telecom', label: 'EU Telecoms folder' },
+  { key: 'tradewise', label: 'Trade Wise folder' },
+  { key: 'giglobal', label: 'G&I Global folder' },
   { key: 'other', label: 'New customers folder' },
 ]
 
@@ -112,8 +114,9 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     const was = previous.find((c) => c.id === id)
     if (b.test !== true && !termsConfirmed && (!was || was.test)) return { ok: false, error: `${who}: choose the payment terms (for example 7 or 14 days) before this client can be a real client` }
     if (b.autoApprove === true) return { ok: false, error: `${who}: auto-approve arrives with the approve step; it stays off for now` }
-    if (b.folder !== 'wave' && b.folder !== 'telecom' && b.folder !== 'other') return { ok: false, error: `${who}: choose a folder` }
-    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, folder: b.folder, test: b.test === true })
+    const folder = FOLDERS.find((f) => f.key === b.folder)?.key
+    if (!folder) return { ok: false, error: `${who}: choose a folder` }
+    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, folder, test: b.test === true })
   }
   return { ok: true, value: out }
 }

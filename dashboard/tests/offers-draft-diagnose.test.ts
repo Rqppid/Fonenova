@@ -275,7 +275,8 @@ describe('the Xero write client', () => {
     expect(((await bad.json()) as { error: string }).error).toContain('Standard, Margin scheme')
     expect((await put('CCCCCCCC-0000-0000-0000-000000000000')).status).toBe(200)
     const { getStore, getJson } = await import('@/lib/store')
-    expect(await getJson(getStore(), 'offers:draft-settings')).toMatchObject({ brandingThemeId: 'CCCCCCCC-0000-0000-0000-000000000000' })
+    // The selected organisation here is a demo: the theme is saved for that organisation only, never as the live one's id.
+    expect(await getJson(getStore(), 'offers:draft-settings')).toMatchObject({ brandingThemeId: null, brandingThemeIds: { 'ten': 'CCCCCCCC-0000-0000-0000-000000000000' } })
   })
 })
 

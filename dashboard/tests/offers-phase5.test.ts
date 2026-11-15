@@ -227,7 +227,7 @@ describe('sending', () => {
     const x = fakeXero({ invoice: { status: 'AUTHORISED' } })
     const t = setup(offer({ approve: approved }), x, LIVE_ON)
     await sendInvoice('of_p5', t.d, { confirm: true })
-    expect(t.uploads).toEqual([{ path: 'Documents/Invoices/Wave/2026051.pdf', size: PDF.length }])
+    expect(t.uploads).toEqual([{ path: 'Documents/Invoices/Wave/Invoice-2026051/Invoice-2026051.pdf', size: PDF.length }])
     const y = fakeXero({ invoice: { status: 'AUTHORISED' } })
     const u = setup(offer({ approve: approved }), y, { ...LIVE_ON, upload: async () => ({ kind: 'error', message: 'OneDrive could not be reached' }) })
     expect(await sendInvoice('of_p5', u.d, { confirm: true })).toMatchObject({ ok: true })
@@ -249,8 +249,8 @@ describe('filing the PDF', () => {
     expect(await fileInvoice('of_p5', setup(offer(), x, LIVE_ON).d)).toMatchObject({ ok: false, message: expect.stringContaining('Approve the invoice first') })
     expect(await fileInvoice('of_p5', t.d)).toMatchObject({ ok: true })
     expect(await fileInvoice('of_p5', t.d)).toMatchObject({ ok: true, message: 'Already filed.' })
-    expect(t.uploads).toEqual([{ path: 'Documents/Invoices/Wave/2026051.pdf', size: PDF.length }])
-    expect(t.get().fulfilment!.filing).toMatchObject({ state: 'done', detail: 'Documents/Invoices/Wave/2026051.pdf' })
+    expect(t.uploads).toEqual([{ path: 'Documents/Invoices/Wave/Invoice-2026051/Invoice-2026051.pdf', size: PDF.length }])
+    expect(t.get().fulfilment!.filing).toMatchObject({ state: 'done', detail: 'Documents/Invoices/Wave/Invoice-2026051/Invoice-2026051.pdf' })
   })
   it('an existing file is left alone and said so; a OneDrive problem is a failure that can be tried again', async () => {
     const x = fakeXero()
@@ -272,10 +272,10 @@ describe('the OneDrive PDF module', () => {
     expect(filingDirs(JSON_DIRS)).toEqual({ wave: 'Documents/Invoices/Wave Phone', telecom: 'Documents/Invoices/EU Telecoms', other: 'Documents/Invoices/Other' })
     for (const bad of [undefined, '', 'not json', '{}', JSON.stringify({ wave: 'a', telecom: 'b' }), JSON.stringify({ wave: '../x', telecom: 'b', other: 'c' }), JSON.stringify({ wave: 'a', telecom: '', other: 'c' })]) expect(filingDirs(bad), String(bad)).toBeNull()
   })
-  it('only ever names <7 digits>.pdf, and never in the ledger or VAT locations', async () => {
+  it('only ever names Invoice-<7 digits>.pdf, and never in the ledger or VAT locations', async () => {
     const { filingDirs, invoiceFilePath } = await import('@/lib/onedrive-invoice')
     const dirs = filingDirs(JSON_DIRS)!
-    expect(invoiceFilePath(dirs, 'wave', '2026051')).toBe('Documents/Invoices/Wave Phone/2026051.pdf')
+    expect(invoiceFilePath(dirs, 'wave', '2026051')).toBe('Documents/Invoices/Wave Phone/Invoice-2026051/Invoice-2026051.pdf')
     for (const n of ['', '2026', 'INV-0001', '../2026051', '20260511']) expect(invoiceFilePath(dirs, 'wave', n), n).toBeNull()
     process.env.FN_ONEDRIVE_EXPENSES_DIR = 'Documents/Invoices/Wave Phone'
     expect(invoiceFilePath(dirs, 'wave', '2026051')).toBeNull()
@@ -293,21 +293,21 @@ describe('the OneDrive PDF module', () => {
       const { getStore } = await import('@/lib/store')
       const { fileInvoicePdf } = await import('@/lib/onedrive-invoice')
       const store = getStore()
-      expect(await fileInvoicePdf('A/2026051.pdf', PDF, store)).toMatchObject({ kind: 'unavailable', message: expect.stringContaining('not connected') })
+      expect(await fileInvoicePdf('A/Invoice-2026051/Invoice-2026051.pdf', PDF, store)).toMatchObject({ kind: 'unavailable', message: expect.stringContaining('not connected') })
       await store.set('onedrive:tokens', { accessToken: 'tok', refreshToken: 'r', expiresAt: Date.now() + 3_600_000, scope: 'Files.Read offline_access' })
-      expect(await fileInvoicePdf('A/2026051.pdf', PDF, store)).toMatchObject({ kind: 'unavailable', message: expect.stringContaining('no write access') })
+      expect(await fileInvoicePdf('A/Invoice-2026051/Invoice-2026051.pdf', PDF, store)).toMatchObject({ kind: 'unavailable', message: expect.stringContaining('no write access') })
       await store.set('onedrive:tokens', { accessToken: 'tok', refreshToken: 'r', expiresAt: Date.now() + 3_600_000, scope: 'Files.ReadWrite offline_access' })
-      expect(await fileInvoicePdf('A/not-a-number.pdf', PDF, store)).toMatchObject({ kind: 'error' })
-      expect(await fileInvoicePdf('A/2026051.pdf', new Uint8Array([1, 2, 3]), store)).toMatchObject({ kind: 'error' })
+      expect(await fileInvoicePdf('A/2026051.pdf', PDF, store)).toMatchObject({ kind: 'error' })
+      expect(await fileInvoicePdf('A/Invoice-2026051/Invoice-2026051.pdf', new Uint8Array([1, 2, 3]), store)).toMatchObject({ kind: 'error' })
       expect(seen).toHaveLength(0)
-      expect(await fileInvoicePdf('A B/2026051.pdf', PDF, store)).toEqual({ kind: 'ok' })
+      expect(await fileInvoicePdf('A B/Invoice-2026051.pdf', PDF, store)).toEqual({ kind: 'ok' })
       expect(seen[0].method).toBe('PUT')
       expect(decodeURIComponent(seen[0].url)).toContain('conflictBehavior=fail')
-      expect(seen[0].url).toContain('A%20B/2026051.pdf')
+      expect(seen[0].url).toContain('A%20B/Invoice-2026051.pdf')
       status = 409
-      expect(await fileInvoicePdf('A/2026051.pdf', PDF, store)).toEqual({ kind: 'exists' })
+      expect(await fileInvoicePdf('A/Invoice-2026051/Invoice-2026051.pdf', PDF, store)).toEqual({ kind: 'exists' })
       status = 403
-      expect(await fileInvoicePdf('A/2026051.pdf', PDF, store)).toMatchObject({ kind: 'unavailable' })
+      expect(await fileInvoicePdf('A/Invoice-2026051/Invoice-2026051.pdf', PDF, store)).toMatchObject({ kind: 'unavailable' })
       expect(seen.every((s) => s.method === 'PUT')).toBe(true) // nothing is ever deleted or read back
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
@@ -353,10 +353,10 @@ describe('the screen and the edit checks', () => {
   })
   it('shows done steps, the bill candidates and filing state', () => {
     const o = offer({ approve: { state: 'done', at: HOURS(1) }, send: { state: 'done', at: HOURS(1), detail: 'accounts@wave.example' } })
-    o.fulfilment!.filing = { state: 'done', detail: 'Documents/Invoices/Wave/2026051.pdf' }
+    o.fulfilment!.filing = { state: 'done', detail: 'Documents/Invoices/Wave/Invoice-2026051/Invoice-2026051.pdf' }
     const html = render(o, { ...setupOn, filingConfigured: true }, [{ id: 'b1', number: 'MO-1', supplier: 'Mobile One Trade B.V.', date: '2026-11-13', totalCents: 462_000, diffCents: 0 }] as never)
     expect(html).toContain('Emailed by Xero to accounts@wave.example')
-    expect(html).toContain('Documents/Invoices/Wave/2026051.pdf')
+    expect(html).toContain('Documents/Invoices/Wave/Invoice-2026051/Invoice-2026051.pdf')
     expect(html).toContain('data-testid="bill-candidate"')
     expect(html).toContain('Pair this bill')
   })

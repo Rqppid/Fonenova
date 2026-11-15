@@ -23,6 +23,7 @@ export type OfferEdit =
   | { action: 'invoice_approve'; id: string; confirm: boolean }
   | { action: 'invoice_send'; id: string; confirm: boolean }
   | { action: 'invoice_file'; id: string }
+  | { action: 'draft_recheck'; id: string }
   | { action: 'bill_confirm'; id: string; billId: string }
 
 type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -41,7 +42,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     return { ok: true, value: { action: 'status', id, status: b.status } }
   }
   if (b.action === 'unprice') return { ok: true, value: { action: 'unprice', id } }
-  if (b.action === 'send' || b.action === 'withdraw' || b.action === 'unlock' || b.action === 'reply_ok' || b.action === 'fulfil_retry' || b.action === 'invoice_file') return { ok: true, value: { action: b.action, id } }
+  if (b.action === 'send' || b.action === 'withdraw' || b.action === 'unlock' || b.action === 'reply_ok' || b.action === 'fulfil_retry' || b.action === 'invoice_file' || b.action === 'draft_recheck') return { ok: true, value: { action: b.action, id } }
   if (b.action === 'invoice_approve' || b.action === 'invoice_send') return { ok: true, value: { action: b.action, id, confirm: b.confirm === true } }
   if (b.action === 'bill_confirm') {
     const billId = str(b.billId, 80)
@@ -64,7 +65,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     if (sc !== null && (typeof sc !== 'number' || !Number.isSafeInteger(sc))) return { ok: false, error: "The client's shipping must be a whole number of cents" }
     return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true, shippingCents: sc as number | null } } }
   }
-  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry, create_test, invoice_approve, invoice_send, invoice_file or bill_confirm' }
+  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry, create_test, invoice_approve, invoice_send, invoice_file, draft_recheck or bill_confirm' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
   const lines: OfferLine[] = []
   for (const [i, raw] of (b.lines as unknown[]).entries()) {
@@ -103,7 +104,7 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
   if (o.status === 'sent' || o.status === 'accepted' || o.status === 'declined' || o.status === 'expired') {
     return { error: o.status === 'sent' ? 'This offer has been sent. Withdraw it to change it.' : o.status === 'accepted' ? 'This offer was accepted, so it can no longer be changed.' : 'This offer was answered or expired. Unlock it to reprice it.' }
   }
-  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test' || e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'bill_confirm') return { error: 'That action is handled separately' }
+  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test' || e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm') return { error: 'That action is handled separately' }
   if (e.action === 'unprice') {
     if (!o.pricing) return { error: 'This offer is not priced' }
     const { pricing: _p, ...rest } = o

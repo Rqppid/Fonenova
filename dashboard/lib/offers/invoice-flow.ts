@@ -18,13 +18,14 @@ import { seedClients } from './clients'
 import { xeroDraftUrl } from './xero-url'
 import { type FulfilDeps, load, log, mutate } from './fulfil'
 import { figuresOrWhy } from './resolve'
+import { pdfPathFor, type FilingDirs } from './filing-paths'
 import type { Fulfilment, InvoiceStep, Offer } from './types'
 
 export interface InvoiceDeps extends FulfilDeps {
   /** OFFERS_ALLOW_APPROVE: approving in a live organisation. Its own switch. */
   allowApprove: boolean
   /** Where the PDF goes, and how it gets there. */
-  filing: { dirs: Record<'wave' | 'telecom' | 'other', string> | null; upload: (path: string, bytes: Uint8Array) => Promise<{ kind: 'ok' | 'exists' | 'unavailable' | 'error'; message?: string }> }
+  filing: { dirs: FilingDirs | null; upload: (path: string, bytes: Uint8Array) => Promise<{ kind: 'ok' | 'exists' | 'unavailable' | 'error'; message?: string }> }
   /** The synced bills and the confirmed pairs, for matching. */
   bills: () => Promise<{ bills: XeroInvoice[]; pairs: XeroPair[] }>
   savePair: (p: XeroPair) => Promise<void>
@@ -110,6 +111,34 @@ export async function confirmBill(offerId: string, billId: string, d: InvoiceDep
 }
 
 // ---------------------------------------------------------------------------
+// Re-check the draft
+// ---------------------------------------------------------------------------
+const ADDRESS_WARNING = /address/i
+
+/**
+ * Look at the draft in Xero again and refresh what the panel warns about. The warnings are worked out
+ * when the draft is made; after fixing the contact in Xero (an address added) this clears a stale one,
+ * or raises one that is new. Read-only: nothing in Xero is changed.
+ */
+export async function recheckDraft(offerId: string, d: InvoiceDeps): Promise<ActionResult> {
+  const r = await ready(d, offerId)
+  if (!r.ok) return r
+  const { f, api } = r
+  try {
+    const inv = await api.getInvoice!(f.draft.invoiceId!)
+    if (!inv) return { ok: false, message: 'The draft is not in Xero any more (deleted?).' }
+    let warnings = (f.draft.warnings ?? []).filter((w) => !ADDRESS_WARNING.test(w))
+    if (inv.hasAddress === false) warnings = ['Add an address in Xero before approving', ...warnings]
+    else if (inv.hasAddress === null) warnings = ["Could not check the contact's address in Xero", ...warnings]
+    const at = nowOf(d).toISOString()
+    await mutate(d.store, offerId, (o) => (o.fulfilment ? { ...o, updatedAt: at, fulfilment: { ...o.fulfilment, draft: { ...o.fulfilment.draft, warnings: warnings.length ? warnings : undefined } }, audit: log(o, at, `Re-checked invoice ${inv.number} in Xero: ${inv.status.toLowerCase()}, ${eur(inv.totalCents)}, address ${inv.hasAddress ? 'present' : inv.hasAddress === false ? 'MISSING' : 'unknown'}`) } : null))
+    return { ok: true, message: `Re-checked: ${inv.status.toLowerCase()} in Xero, ${eur(inv.totalCents)}, ${inv.hasAddress ? 'the contact has an address' : inv.hasAddress === false ? 'the contact still has no address' : 'the address could not be checked'}.` }
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message.slice(0, 200) : 'Xero could not be reached' }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Approve
 // ---------------------------------------------------------------------------
 export async function approveInvoice(offerId: string, d: InvoiceDeps, opts: { confirm: boolean }): Promise<ActionResult> {
@@ -151,6 +180,8 @@ export async function approveInvoice(offerId: string, d: InvoiceDeps, opts: { co
     const after = await api.getInvoice!(f.draft.invoiceId!)
     if (after?.status !== 'AUTHORISED') return stop(`Xero did not show it as approved afterwards (${after?.status ?? 'not found'}). Check it in Xero before pressing again.`, 'failed')
     await setStep(d, offerId, 'approve', { state: 'done', at: nowOf(d).toISOString() }, `Approved invoice ${inv.number} in Xero${f.test ? ' (test, Demo Company)' : ''}`)
+    // The address was just checked, so a stale "add an address" note from when the draft was made goes.
+    await mutate(d.store, offerId, (o) => (o.fulfilment?.draft.warnings ? { ...o, fulfilment: { ...o.fulfilment, draft: { ...o.fulfilment.draft, warnings: o.fulfilment.draft.warnings.filter((w) => !ADDRESS_WARNING.test(w)).length ? o.fulfilment.draft.warnings.filter((w) => !ADDRESS_WARNING.test(w)) : undefined } } } : null))
     await d.notify(`${f.test ? '[TEST] ' : ''}Invoice ${inv.number} approved in Xero (${eur(inv.totalCents)}). Nothing has been sent yet.`, link(d, offer))
     return { ok: true, message: `Invoice ${inv.number} approved.` }
   } catch (e) {
@@ -227,9 +258,9 @@ export async function fileInvoice(offerId: string, d: InvoiceDeps): Promise<Acti
   }
   try {
     const number = f.draft.invoiceNumber ?? ''
-    const dir = d.filing.dirs[client.folder]
-    if (!dir || !/^\d{7}$/.test(number)) return stop('The invoice number or the client folder is not usable for filing.')
-    const path = `${dir}/${number}.pdf`
+    if (!d.filing.dirs[client.folder]) return stop(`No filing folder is set for ${client.name}'s folder (${client.folder}) in INVOICE_FILING_DIRS.`)
+    const path = pdfPathFor(d.filing.dirs, client.folder, number, client.name)
+    if (!path) return stop('The invoice number or the client folder is not usable for filing.')
     if (!api.invoicePdf) return stop('The Xero write connection cannot fetch PDFs.')
     const bytes = await api.invoicePdf(f.draft.invoiceId!)
     const res = await d.filing.upload(path, bytes)

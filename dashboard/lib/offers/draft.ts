@@ -16,6 +16,19 @@ export interface DraftSettings {
   accountCode: string
   /** The branding theme ("Sold under VAT Margin Scheme, ART 313"), by Xero id. Null leaves Xero's default. */
   brandingThemeId: string | null
+  /**
+   * The theme for each Xero organisation, by its id: a theme id exists in one organisation only, so one
+   * organisation's id is never sent to another. `brandingThemeId` above is what was saved before this
+   * existed and belongs to the LIVE organisation.
+   */
+  brandingThemeIds?: Record<string, string>
+}
+
+/** The branding theme for this organisation: its own, else the older single id for a live organisation, never for a demo. */
+export function themeFor(s: Pick<DraftSettings, 'brandingThemeId' | 'brandingThemeIds'>, org: { id?: string | null; isDemo: boolean }): string | null {
+  const own = org.id ? s.brandingThemeIds?.[org.id.toLowerCase()] : undefined
+  if (own) return own
+  return org.isDemo ? null : s.brandingThemeId
 }
 export const DEFAULT_DRAFT_SETTINGS: DraftSettings = { taxType: 'NONE', accountCode: '200', brandingThemeId: null }
 
@@ -185,6 +198,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
   try {
     const org = await a.api.organisation()
     // The guard: test offers touch only a demo organisation (unless a live test contact is mapped for the test client), real offers only the live one.
+    const settings = { ...a.settings, brandingThemeId: themeFor(a.settings, org) }
     const liveTest = a.test && !org.isDemo
     if (liveTest && !a.client.liveTestContactId) return fail(`Test offers only go to the Xero Demo Company, and the selected organisation (${org.name}) is not a demo. A test offer can use a live organisation only when a live test contact is mapped for the test client (Offers, Clients). Nothing was created.`)
     const contactId = liveTest ? a.client.liveTestContactId! : a.client.xeroContactId
@@ -219,7 +233,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
         if (appeared) return { ok: true, id: appeared.id, number: appeared.number, org: org.name, adopted: true, warnings }
         const n = nextInvoiceNumber(await a.api.invoiceNumbers(), org.isDemo) // re-read from Xero every time
         if (!n.ok) return fail(n.error)
-        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings: a.settings })
+        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings })
         try {
           // The key carries the invoice number: a different number is a different request, and Xero
           // answers the same key with the same (stored) result.

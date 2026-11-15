@@ -1,6 +1,6 @@
 /**
  * Files an invoice PDF on OneDrive, through the dashboard's own Microsoft connection. It can only
- * CREATE a new file `<7-digit number>.pdf` inside a folder named in INVOICE_FILING_DIRS: never
+ * CREATE a new file `Invoice-<7-digit number>.pdf` (laid out as Make filed them: see offers/filing-paths) inside a folder named in INVOICE_FILING_DIRS: never
  * overwrite (an existing file is left alone and reported as "already there"), never delete, and
  * never touch the ledger or the VAT folder. Without INVOICE_FILING_DIRS it is off.
  *
@@ -11,36 +11,21 @@ import 'server-only'
 import { getJson, getStore, type Store } from './store'
 import { accessToken, encodePath, graphBase, normalisePath, oneDriveConfig, scopeCanWrite } from './onedrive'
 import type { Folder } from './offers/clients'
+import { isInvoicePdfPath, parseFilingDirs, pdfPathFor, type FilingDirs } from './offers/filing-paths'
 
 const MAX_PDF_BYTES = 4 * 1024 * 1024 // Graph's simple upload limit
 
-export type FilingDirs = Record<Folder, string>
+export { type FilingDirs, pdfPathFor } from './offers/filing-paths'
 
-/** The three folders from INVOICE_FILING_DIRS, or null when it is not set up or not usable. */
+/** The folders from INVOICE_FILING_DIRS, or null when it is not set up or not usable. */
 export function filingDirs(env: string | undefined = process.env.INVOICE_FILING_DIRS): FilingDirs | null {
-  if (!env?.trim()) return null
-  let raw: unknown
-  try {
-    raw = JSON.parse(env)
-  } catch {
-    return null
-  }
-  const o = (raw ?? {}) as Record<string, unknown>
-  const out: Partial<FilingDirs> = {}
-  for (const k of ['wave', 'telecom', 'other'] as const) {
-    const p = typeof o[k] === 'string' ? normalisePath(o[k] as string) : null
-    if (!p || p.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) return null
-    out[k] = p
-  }
-  return out as FilingDirs
+  return parseFilingDirs(env)
 }
 
-/** Where the PDF goes, or null if the number or folder is not usable. Only `<7 digits>.pdf` names exist. */
-export function invoiceFilePath(dirs: FilingDirs, folder: Folder, number: string): string | null {
-  if (!/^\d{7}$/.test(number)) return null
-  const dir = dirs[folder]
-  if (!dir) return null
-  const path = `${dir}/${number}.pdf`
+/** The path, or null if it is not usable or would land in the ledger or VAT locations. */
+export function invoiceFilePath(dirs: FilingDirs, folder: Folder, number: string, clientName = 'client'): string | null {
+  const path = pdfPathFor(dirs, folder, number, clientName)
+  if (!path) return null
   const protectedPaths = [process.env.FN_ONEDRIVE_LEDGER, process.env.FN_ONEDRIVE_EXPENSES].map((p) => normalisePath(p)).filter((p): p is string => !!p)
   const protectedDirs = [process.env.FN_ONEDRIVE_EXPENSES_DIR].map((p) => normalisePath(p)).filter((p): p is string => !!p)
   const low = path.toLowerCase()
@@ -51,7 +36,7 @@ export function invoiceFilePath(dirs: FilingDirs, folder: Folder, number: string
 export type FileResult = { kind: 'ok' } | { kind: 'exists' } | { kind: 'unavailable'; message: string } | { kind: 'error'; message: string }
 
 export async function fileInvoicePdf(path: string, bytes: Uint8Array, store: Store = getStore()): Promise<FileResult> {
-  if (!/\/\d{7}\.pdf$/.test(path)) return { kind: 'error', message: 'Only invoice PDFs named by their number can be filed' }
+  if (!isInvoicePdfPath(path)) return { kind: 'error', message: 'Only invoice PDFs named Invoice-<number>.pdf can be filed' }
   if (bytes.length < 100 || bytes.length > MAX_PDF_BYTES || String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') return { kind: 'error', message: 'That is not a usable PDF (or it is over 4 MB)' }
   const c = oneDriveConfig()
   if (!c) return { kind: 'unavailable', message: 'OneDrive is not set up on the dashboard' }
