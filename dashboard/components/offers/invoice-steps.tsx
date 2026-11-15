@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CircleAlert, CircleCheck, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ImeiBlock } from '@/components/offers/imei-row'
 import { ukTime } from '@/lib/format-uk'
 import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import type { Offer } from '@/lib/offers/types'
@@ -131,6 +132,10 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
               <p className="text-[12.5px]">Gmail sends from info@fonenova.com to the client&apos;s invoice emails with the PDF attached. Xero email sends from Xero to the contact&apos;s own address (it must be one of the client&apos;s invoice emails). Use one, not both.</p>
             </>
           )}
+        </Row>
+
+        <Row tone={f.imei?.sent?.state === 'done' ? 'ok' : f.imei?.sent?.state === 'failed' ? 'bad' : 'wait'} title="IMEI list and shipping label (from Mobile One)" testId="step-imei">
+          <ImeiBlock offer={offer} sendHint={sendHint} />
         </Row>
 
         <Row tone={filing?.state === 'done' ? 'ok' : filing?.state === 'failed' || filing?.state === 'skipped' ? 'bad' : 'wait'} title="File the PDF on OneDrive" testId="step-filing">

@@ -187,7 +187,7 @@ export function mimeMessage(m: { from: string; to: string; subject: string; text
   return [...head, `Content-Type: multipart/mixed; boundary="${outer}"`, '', `--${outer}`, `Content-Type: multipart/alternative; boundary="${boundary}"`, '', ...alternative, ...files, `--${outer}--`, ''].join('\r\n')
 }
 
-export async function sendGmail(c: GmailConfig, msg: { subject: string; text: string; html: string; to?: string; fromName?: string; threadId?: string; inReplyTo?: string; attachments?: readonly MailAttachment[] }, store: Store = getStore()): Promise<{ id: string; to: string; from: string }> {
+export async function sendGmail(c: GmailConfig, msg: { subject: string; text: string; html: string; to?: string; fromName?: string; threadId?: string; inReplyTo?: string; attachments?: readonly MailAttachment[] }, store: Store = getStore()): Promise<{ id: string; threadId: string; to: string; from: string }> {
   const t = await accessToken(c, store)
   const to = msg.to ?? c.to
   const raw = Buffer.from(mimeMessage({ from: t.email, to, subject: msg.subject, text: msg.text, html: msg.html, ...(msg.fromName ? { fromName: msg.fromName } : {}), ...(msg.inReplyTo ? { inReplyTo: msg.inReplyTo } : {}), ...(msg.attachments?.length ? { attachments: msg.attachments } : {}) })).toString('base64url')
@@ -199,7 +199,8 @@ export async function sendGmail(c: GmailConfig, msg: { subject: string; text: st
     signal: AbortSignal.timeout(20_000),
   })
   if (!res.ok) throw new Error(`Gmail did not send it (${res.status}): ${(await res.text()).slice(0, 200)}`)
-  return { id: String(((await res.json()) as { id?: string }).id ?? ''), to, from: t.email }
+  const sent = (await res.json()) as { id?: string; threadId?: string }
+  return { id: String(sent.id ?? ''), threadId: String(sent.threadId ?? ''), to, from: t.email }
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +223,7 @@ export interface MailMessage {
   attachments: string[]
 }
 
-type Part = { mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string }; parts?: Part[]; headers?: { name: string; value: string }[] }
+type Part = { mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string; size?: number }; parts?: Part[]; headers?: { name: string; value: string }[] }
 
 const decode = (data: string | undefined) => (data ? Buffer.from(data, 'base64url').toString('utf8') : '')
 
@@ -306,4 +307,55 @@ export async function hasReplied(c: GmailConfig, threadId: string, afterIso: str
 
 export async function getMessage(c: GmailConfig, id: string, store: Store = getStore()): Promise<MailMessage> {
   return parseGmailMessage((await gmailGet(c, `/messages/${encodeURIComponent(id)}?format=full`, store)) as Parameters<typeof parseGmailMessage>[0])
+}
+
+// ---------------------------------------------------------------------------
+// Attachments in a thread (for IMEI sheets and shipping labels). Reading only.
+// ---------------------------------------------------------------------------
+
+export interface MailFile { messageId: string; attachmentId: string; filename: string; mime: string; size: number }
+export interface ThreadMessage { id: string; from: string; subject: string; receivedAt: string; labels: string[]; files: MailFile[] }
+
+/** The attachments of one Gmail API message (format=full): real files only, not inline text parts. Pure, for tests. */
+export function parseGmailFiles(j: { id?: string; payload?: Part }): MailFile[] {
+  const out: MailFile[] = []
+  const walk = (p: Part | undefined) => {
+    if (!p) return
+    if (p.filename && p.body?.attachmentId) out.push({ messageId: String(j.id ?? ''), attachmentId: p.body.attachmentId, filename: p.filename, mime: p.mimeType ?? 'application/octet-stream', size: Number(p.body.size ?? 0) })
+    for (const c of p.parts ?? []) walk(c)
+  }
+  walk(j.payload)
+  return out
+}
+
+/** A whole thread as plain messages with their attachments. Pure, for tests. */
+export function parseGmailThread(j: { messages?: { id?: string; internalDate?: string; labelIds?: string[]; payload?: Part }[] }): ThreadMessage[] {
+  return (j.messages ?? []).map((m) => {
+    const headers = new Map((m.payload?.headers ?? []).map((h) => [h.name.toLowerCase(), h.value]))
+    return { id: String(m.id ?? ''), from: headers.get('from') ?? '', subject: headers.get('subject') ?? '', receivedAt: new Date(Number(m.internalDate ?? 0)).toISOString(), labels: m.labelIds ?? [], files: parseGmailFiles(m) }
+  })
+}
+
+export async function getThreadMessages(c: GmailConfig, threadId: string, store: Store = getStore()): Promise<ThreadMessage[]> {
+  if (!/^[0-9a-f]{8,24}$/i.test(threadId)) throw new Error('That is not a Gmail thread id')
+  return parseGmailThread((await gmailGet(c, `/threads/${encodeURIComponent(threadId)}?format=full`, store)) as Parameters<typeof parseGmailThread>[0])
+}
+
+export async function getAttachmentBytes(c: GmailConfig, messageId: string, attachmentId: string, store: Store = getStore()): Promise<Uint8Array> {
+  const j = (await gmailGet(c, `/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`, store)) as { data?: string }
+  if (!j.data) throw new Error('Gmail returned an empty attachment')
+  return new Uint8Array(Buffer.from(j.data, 'base64url'))
+}
+
+/**
+ * A Gmail thread id from what Hamza pastes: the API's hex id as it is, or a link from the browser
+ * (…#all/thread-f:1881940372914403044, where the number is the same id in decimal). Null if neither.
+ */
+export function gmailThreadIdFrom(input: string): string | null {
+  const t = input.trim()
+  if (/^[0-9a-f]{12,20}$/i.test(t) && /[a-f]/i.test(t)) return t.toLowerCase()
+  const dec = /thread-[a-z]+:(\d{10,24})/i.exec(t)?.[1] ?? (/^\d{10,24}$/.test(t) ? t : null)
+  if (dec) return BigInt(dec).toString(16)
+  const hex = /#(?:[a-z]+\/)+([0-9a-f]{12,20})(?:[/?]|$)/i.exec(t)?.[1]
+  return hex ? hex.toLowerCase() : null
 }

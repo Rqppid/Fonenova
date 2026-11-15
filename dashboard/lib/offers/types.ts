@@ -132,6 +132,9 @@ export interface InvoiceStep {
   at?: string
   /** For the send step: where Xero sent it. For the filing step: where the PDF is. */
   detail?: string
+  /** For a Gmail send: the sent message and its thread, so a later email (the IMEIs) can reply in the same thread. */
+  messageId?: string
+  threadId?: string
 }
 
 /** The supplier's bill that belongs to this order, once confirmed. It is saved as a Xero pair as well, so the Matching page and profit figures use it. */
@@ -141,6 +144,25 @@ export interface BillMatch {
   supplier: string
   totalCents: number
   confirmedAt: string
+}
+
+/** One file picked from a Mobile One email (an IMEI sheet or a shipping label). Only where it is is saved, never the file. */
+export interface ImeiFile {
+  messageId: string
+  attachmentId: string
+  filename: string
+  mime: string
+  size: number
+  kind: 'imei' | 'label' | 'other'
+}
+/** The IMEI sheet and label for an order: picked by hand from Mobile One's email, then sent with the invoice or afterwards in the same thread. */
+export interface ImeiPack {
+  /** The Gmail thread the files came from. */
+  threadId: string
+  files: ImeiFile[]
+  chosenAt: string
+  /** working = being sent right now; failed = the outcome is unknown and is not retried by itself. */
+  sent?: { state: 'working' | 'done' | 'failed'; at: string; how?: 'with_invoice' | 'follow_up'; to?: string; reason?: string }
 }
 
 export interface Fulfilment {
@@ -156,6 +178,7 @@ export interface Fulfilment {
   send?: InvoiceStep
   filing?: InvoiceStep
   bill?: BillMatch
+  imei?: ImeiPack
 }
 
 export interface Offer {

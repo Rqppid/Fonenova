@@ -7,6 +7,7 @@ import { loadClients } from '@/lib/offers/store'
 import { approveReply, fulfilOffer, retryFulfilment } from '@/lib/offers/fulfil'
 import { fulfilDeps, invoiceDeps } from '@/lib/offers/fulfil-server'
 import { approveInvoice, confirmBill, fileInvoice, recheckDraft, sendInvoice } from '@/lib/offers/invoice-flow'
+import { attachImeiFiles, clearImeiFiles, findImeiFiles, sendImeiFollowUp } from '@/lib/offers/imei'
 import { applyAnswer } from '@/lib/offers/resolve'
 import { sendOffer, unlockOffer, withdrawOffer } from '@/lib/offers/send'
 import { notify } from '@/lib/offers/telegram'
@@ -41,6 +42,17 @@ export async function PUT(req: Request) {
       : e.action === 'invoice_file' ? await fileInvoice(e.id, d)
       : e.action === 'draft_recheck' ? await recheckDraft(e.id, d)
       : await confirmBill(e.id, e.billId, d)
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'imei_find' || e.action === 'imei_attach' || e.action === 'imei_clear' || e.action === 'imei_send') {
+    const d = invoiceDeps(store)
+    if (e.action === 'imei_find') {
+      const r = await findImeiFiles(e.id, d, { thread: e.thread })
+      return r.ok ? json({ ok: true, message: r.message, threadId: r.threadId, candidates: r.candidates }) : json({ error: r.message }, 409)
+    }
+    const r = e.action === 'imei_attach' ? await attachImeiFiles(e.id, d, { thread: e.thread, picks: e.picks })
+      : e.action === 'imei_clear' ? await clearImeiFiles(e.id, d)
+      : await sendImeiFollowUp(e.id, d, { confirm: e.confirm })
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
   if (e.action === 'reply_ok' || e.action === 'fulfil_retry') {

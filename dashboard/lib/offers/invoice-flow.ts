@@ -19,13 +19,25 @@ import { xeroDraftUrl } from './xero-url'
 import { type FulfilDeps, load, log, mutate } from './fulfil'
 import { figuresOrWhy } from './resolve'
 import { pdfPathFor, type FilingDirs } from './filing-paths'
+import { fetchImeiAttachments, imeiLine } from './imei'
+import type { ThreadMessage } from '../gmail'
 import type { Fulfilment, InvoiceStep, Offer } from './types'
+
+/** What the Gmail connection offers for IMEI files. Absent when Gmail is not connected. */
+export interface GmailThreadApi {
+  messages: (threadId: string) => Promise<ThreadMessage[]>
+  file: (messageId: string, attachmentId: string) => Promise<Uint8Array>
+  /** The RFC Message-ID of one of our own sent messages, to reply to it. */
+  rfcId: (messageId: string) => Promise<string | null>
+}
 
 export interface InvoiceDeps extends FulfilDeps {
   /** OFFERS_ALLOW_APPROVE: approving in a live organisation. Its own switch. */
   allowApprove: boolean
   /** Sends one email from info@fonenova.com (the connected Gmail), with attachments. Null when Gmail is not set up. */
-  mail?: (m: { to: string; subject: string; text: string; html: string; attachments: { filename: string; mime: string; bytes: Uint8Array }[] }) => Promise<{ id: string }>
+  mail?: (m: { to: string; subject: string; text: string; html: string; attachments: { filename: string; mime: string; bytes: Uint8Array }[]; threadId?: string; inReplyTo?: string }) => Promise<{ id: string; threadId?: string }>
+  /** Reads Mobile One's threads for IMEI sheets and labels, and fetches them. Null when Gmail is not connected. */
+  gmailThread?: GmailThreadApi
   /** Where the PDF goes, and how it gets there. */
   filing: { dirs: FilingDirs | null; upload: (path: string, bytes: Uint8Array) => Promise<{ kind: 'ok' | 'exists' | 'unavailable' | 'error'; message?: string }> }
   /** The synced bills and the confirmed pairs, for matching. */
@@ -237,6 +249,7 @@ export async function sendInvoice(offerId: string, d: InvoiceDeps, opts: { confi
     if (inv.totalCents !== (await figuresOrWhy(d.store, offer)).figures?.grandCents) return stop(`The invoice in Xero totals ${eur(inv.totalCents)}, which is not what the client accepted. Nothing was sent.`)
 
     let where: string
+    let sentRef: { messageId: string; threadId?: string } | undefined
     if (via === 'xero') {
       // Xero emails only the contact's own address, so it must be one of the addresses chosen for this client.
       if (!inv.contactEmail) return stop('The Xero contact has no email address. Add one in Xero first.')
@@ -245,13 +258,28 @@ export async function sendInvoice(offerId: string, d: InvoiceDeps, opts: { confi
       where = inv.contactEmail
     } else {
       const pdf = await api.invoicePdf!(f.draft.invoiceId!)
+      // IMEI files chosen before sending go with the invoice; chosen later, they follow in the same thread.
+      const pack = f.imei && f.imei.sent?.state !== 'done' ? f.imei : undefined
+      let extra: { filename: string; mime: string; bytes: Uint8Array }[] = []
+      if (pack) {
+        try {
+          extra = await fetchImeiAttachments(d, pack)
+        } catch (e) {
+          return stop(`The IMEI files could not be fetched from Gmail (${e instanceof Error ? e.message.slice(0, 120) : 'unknown'}). Nothing was sent. Remove them or try again.`)
+        }
+      }
       const subject = `${f.test ? '[TEST] ' : ''}Invoice ${inv.number} from FoneNova Ltd`
-      const text = `Hello ${client.name},\n\nPlease find attached invoice ${inv.number} for ${eur(inv.totalCents)} (EUR).\nPayment details are on the invoice.\n\nKind regards,\nFoneNova Ltd`
-      const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#111"><p>Hello ${client.name.replace(/&/g, '&amp;').replace(/</g, '&lt;')},</p><p>Please find attached invoice <strong>${inv.number}</strong> for <strong>${eur(inv.totalCents)}</strong> (EUR).<br>Payment details are on the invoice.</p><p>Kind regards,<br>FoneNova Ltd</p></div>`
-      await d.mail!({ to: wanted.join(', '), subject, text, html, attachments: [{ filename: `Invoice-${inv.number}.pdf`, mime: 'application/pdf', bytes: pdf }] })
-      where = `${wanted.join(', ')} (Gmail, PDF attached)`
+      const text = `Hello ${client.name},\n\nPlease find attached invoice ${inv.number} for ${eur(inv.totalCents)} (EUR).\nPayment details are on the invoice.${pack ? `\n${imeiLine(pack)}` : ''}\n\nKind regards,\nFoneNova Ltd`
+      const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#111"><p>Hello ${client.name.replace(/&/g, '&amp;').replace(/</g, '&lt;')},</p><p>Please find attached invoice <strong>${inv.number}</strong> for <strong>${eur(inv.totalCents)}</strong> (EUR).<br>Payment details are on the invoice.${pack ? `<br>${imeiLine(pack).replace(/&/g, '&amp;').replace(/</g, '&lt;')}` : ''}</p><p>Kind regards,<br>FoneNova Ltd</p></div>`
+      const sent = await d.mail!({ to: wanted.join(', '), subject, text, html, attachments: [{ filename: `Invoice-${inv.number}.pdf`, mime: 'application/pdf', bytes: pdf }, ...extra] })
+      where = `${wanted.join(', ')} (Gmail, PDF attached${pack ? ', with IMEI files' : ''})`
+      sentRef = { messageId: sent.id, ...(sent.threadId ? { threadId: sent.threadId } : {}) }
+      if (pack) {
+        const at = nowOf(d).toISOString()
+        await mutate(d.store, offerId, (o) => (o.fulfilment?.imei ? { ...o, fulfilment: { ...o.fulfilment, imei: { ...o.fulfilment.imei, sent: { state: 'done' as const, at, how: 'with_invoice' as const, to: wanted.join(', ') } } } } : null))
+      }
     }
-    await setStep(d, offerId, 'send', { state: 'done', at: nowOf(d).toISOString(), detail: where }, `Invoice ${inv.number} emailed${via === 'gmail' ? ' from info@fonenova.com' : ' by Xero'} to ${where}`)
+    await setStep(d, offerId, 'send', { state: 'done', at: nowOf(d).toISOString(), detail: where, ...(sentRef ?? {}) }, `Invoice ${inv.number} emailed${via === 'gmail' ? ' from info@fonenova.com' : ' by Xero'} to ${where}`)
     await d.notify(`${f.test ? '[TEST] ' : ''}Invoice ${inv.number} was emailed to ${where} (${eur(inv.totalCents)}).`, link(d, offer))
     // The PDF is filed straight after, best effort: a problem there never undoes the send.
     await fileInvoice(offerId, d).catch(() => {})
