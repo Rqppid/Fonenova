@@ -47,7 +47,11 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
       router.refresh()
     } else setCreateError(out?.error ?? 'Could not create it. Check your connection and try again.')
   }
-  const list = offers.filter((o) => showDismissed || o.status !== 'dismissed')
+  // Finished test offers (answered, expired or dismissed) are tucked away so they do not crowd the real ones.
+  const [showTests, setShowTests] = useState(false)
+  const finishedTest = (o: Offer) => o.testOnly === true && ['accepted', 'declined', 'expired', 'dismissed'].includes(o.status)
+  const hiddenTests = offers.filter(finishedTest).length
+  const list = offers.filter((o) => (showDismissed || o.status !== 'dismissed') && (showTests || o.id === selected || !finishedTest(o)))
   const open = offers.find((o) => o.id === openId) ?? null
   const waiting = offers.filter((o) => o.status === 'needs_review').length
   return (
@@ -60,6 +64,11 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
             <h2 id="offers-list" className="text-[15px] font-semibold text-ink">Offers <span className="ml-1 font-normal text-ink-2">{waiting ? `${waiting} to review` : 'all reviewed'}</span></h2>
             <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2"><input type="checkbox" checked={showDismissed} onChange={(e) => setShowDismissed(e.target.checked)} />Show not offers</label>
           </div>
+          {hiddenTests > 0 || showTests ? (
+            <div className="border-b border-line px-4 py-1.5">
+              <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2" data-testid="show-finished-tests"><input type="checkbox" checked={showTests} onChange={(e) => setShowTests(e.target.checked)} />Show finished test offers ({hiddenTests})</label>
+            </div>
+          ) : null}
           <div className="border-b border-line px-4 py-2" data-testid="new-test-offer">
             <Button size="sm" variant="outline" disabled={creating} onClick={createTest}>{creating ? 'Creating…' : 'New test offer'}</Button>
             <p className="mt-1 text-[12px] text-ink-3">A made-up offer for the test client, to try pricing, sending, accepting and the Xero draft without a real email.</p>
