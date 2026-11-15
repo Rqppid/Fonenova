@@ -73,10 +73,10 @@ describe('reporting to the outside monitor', () => {
 
 describe('settings', () => {
   it('keeps older saved settings working and checks each change', () => {
-    expect(validateSettings({ marginSchemeVat: true })).toEqual({ marginSchemeVat: true, ignoredInvoiceNumbers: [], fridayEmail: false })
-    expect(validateSettings({ marginSchemeVat: false, fridayEmail: true })).toMatchObject({ fridayEmail: true })
-    expect(validateSettingsPatch({ fridayEmail: true })).toEqual({ fridayEmail: true })
-    expect(validateSettingsPatch({ fridayEmail: 'yes' })).toBeNull()
+    expect(validateSettings({ marginSchemeVat: true })).toEqual({ marginSchemeVat: true, ignoredInvoiceNumbers: [] })
+    // The Friday email switch no longer exists: an old saved value is dropped and a change to it does nothing.
+    expect(validateSettings({ marginSchemeVat: false, fridayEmail: true })).toEqual({ marginSchemeVat: false, ignoredInvoiceNumbers: [] })
+    expect(validateSettingsPatch({ fridayEmail: true })).toBeNull()
     expect(validateSettingsPatch({ ignoredInvoiceNumbers: ['2026039'] })).toEqual({ ignoredInvoiceNumbers: ['2026039'] })
     expect(validateSettingsPatch({ ignoredInvoiceNumbers: ['<script>'] })).toBeNull()
     expect(validateSettingsPatch({})).toBeNull()

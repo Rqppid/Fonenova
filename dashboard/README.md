@@ -171,8 +171,8 @@ Gmail needs read access: new connections ask for `gmail.send` and `gmail.readonl
 never change or delete). Connect Gmail again in Settings once; the consent screen must be
 Internal (Workspace) or the token expires after 7 days.
 
-The Friday cash email has been removed (no scheduled job, nothing on the Settings card); the
-`fridayEmail` setting stays off and `/api/cron/digest` answers "switched off". An offer whose Gmail
+The Friday cash email has been removed completely: no scheduled job, no route, no sender and no
+setting (an old saved "on" is ignored). An offer whose Gmail
 thread already has our reply (answered by hand) is stored as "not an offer" with a note and no
 Telegram ping; Restore brings it back.
 
@@ -285,8 +285,7 @@ An invoice number deleted in Invoice2Go can be marked "never used" in Settings.
 
 The dashboard's one Gmail connection (`lib/gmail.ts`, scopes `gmail.send` and `gmail.readonly`)
 reads Mobile One's offers and sends the offer emails and the answer notifications. The Friday cash
-email that once used it has been removed: `lib/digest.ts` and `/api/cron/digest` remain in the
-code, but nothing schedules them and the `fridayEmail` setting is off, so nothing is sent.
+email that once used it has been removed completely (code, routes and setting), so nothing can send it.
 
 Setup, once: in Google Cloud (project of the sign-in client) enable the **Gmail API**, add
 `https://dashboard.fonenova.com/gmail/callback` as a redirect URI on the OAuth client, and set

@@ -1,6 +1,6 @@
 /**
  * The orders as the dashboard shows them, worked out the same way everywhere (the page, the
- * Friday email, the AI bar): ledger orders with Xero's live statuses, plus orders from confirmed
+ * AI bar): ledger orders with Xero's live statuses, plus orders from confirmed
  * Xero pairs, plus the live Xero checks. Pure, so all three can never disagree.
  */
 import { applyLiveStatus, type LiveSummary } from './metrics'

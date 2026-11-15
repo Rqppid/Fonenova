@@ -1,10 +1,9 @@
 /**
  * The watchdog: every way the data can quietly stop flowing, checked in one place. Pure, so the
- * daily job, Settings and the Friday email all show the same list.
+ * daily job and Settings show the same list.
  *
  * Red means "something is broken or missing": the daily job reports it to the outside monitor
- * (Healthchecks.io), which emails you. Amber means "worth knowing", shown on the dashboard and in
- * the Friday email. If the daily job itself stops running, the outside monitor notices the
+ * (Healthchecks.io), which emails you. Amber means "worth knowing", shown on the dashboard. If the daily job itself stops running, the outside monitor notices the
  * missing ping and emails you too, so silence really does mean all is well.
  */
 import type { MakeStatus } from './make'
@@ -178,7 +177,7 @@ export function healthChecks(h: HealthInput): HealthCheck[] {
   return out
 }
 
-/** Plain text for the outside monitor's email and the Friday email: problems first. */
+/** Plain text for the outside monitor's email: problems first. */
 export function healthSummary(checks: readonly HealthCheck[]): string {
   const bad = checks.filter((c) => c.level !== 'ok').sort((a, b) => (a.level === b.level ? 0 : a.level === 'red' ? -1 : 1))
   if (!bad.length) return 'QuayPilot: all checks pass.'
