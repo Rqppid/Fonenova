@@ -164,30 +164,33 @@ async function accessToken(c: GmailConfig, store: Store): Promise<Tokens> {
 }
 
 /** RFC 2822 message with a plain-text and an HTML part. Headers are UTF-8 encoded. */
-export function mimeMessage(m: { from: string; to: string; subject: string; text: string; html: string; fromName?: string; inReplyTo?: string; references?: string }): string {
+export interface MailAttachment { filename: string; mime: string; bytes: Uint8Array }
+
+export function mimeMessage(m: { from: string; to: string; subject: string; text: string; html: string; fromName?: string; inReplyTo?: string; references?: string; attachments?: readonly MailAttachment[] }): string {
   const boundary = `qp_${crypto.randomBytes(9).toString('hex')}`
+  const outer = `qpm_${crypto.randomBytes(9).toString('hex')}`
   const enc = (s: string) => `=?UTF-8?B?${Buffer.from(s).toString('base64')}?=`
-  const part = (type: string, body: string) => [`--${boundary}`, `Content-Type: ${type}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '', Buffer.from(body).toString('base64').replace(/(.{76})/g, '$1\r\n')].join('\r\n')
-  return [
+  const wrap = (b64: string) => b64.replace(/(.{76})/g, '$1\r\n')
+  const part = (type: string, body: string) => [`--${boundary}`, `Content-Type: ${type}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '', wrap(Buffer.from(body).toString('base64'))].join('\r\n')
+  const alternative = [part('text/plain', m.text), part('text/html', m.html), `--${boundary}--`]
+  const head = [
     `From: ${enc(m.fromName ?? 'QuayPilot')} <${m.from}>`,
     `To: ${m.to}`,
     `Subject: ${enc(m.subject)}`,
     ...(m.inReplyTo ? [`In-Reply-To: ${m.inReplyTo}`, `References: ${m.references ?? m.inReplyTo}`] : []),
     'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    '',
-    part('text/plain', m.text),
-    part('text/html', m.html),
-    `--${boundary}--`,
-    '',
-  ].join('\r\n')
+  ]
+  if (!m.attachments?.length) return [...head, `Content-Type: multipart/alternative; boundary="${boundary}"`, '', ...alternative, ''].join('\r\n')
+  // With attachments: a "mixed" message holding the text/html alternative, then each file.
+  const safe = (n: string) => n.replace(/[\r\n"\\]/g, '_')
+  const files = m.attachments.flatMap((a) => [`--${outer}`, `Content-Type: ${a.mime}; name="${safe(a.filename)}"`, 'Content-Transfer-Encoding: base64', `Content-Disposition: attachment; filename="${safe(a.filename)}"`, '', wrap(Buffer.from(a.bytes).toString('base64'))])
+  return [...head, `Content-Type: multipart/mixed; boundary="${outer}"`, '', `--${outer}`, `Content-Type: multipart/alternative; boundary="${boundary}"`, '', ...alternative, ...files, `--${outer}--`, ''].join('\r\n')
 }
 
-/** Set threadId and inReplyTo (the original's RFC Message-ID) to answer inside an existing thread. */
-export async function sendGmail(c: GmailConfig, msg: { subject: string; text: string; html: string; to?: string; fromName?: string; threadId?: string; inReplyTo?: string }, store: Store = getStore()): Promise<{ id: string; to: string; from: string }> {
+export async function sendGmail(c: GmailConfig, msg: { subject: string; text: string; html: string; to?: string; fromName?: string; threadId?: string; inReplyTo?: string; attachments?: readonly MailAttachment[] }, store: Store = getStore()): Promise<{ id: string; to: string; from: string }> {
   const t = await accessToken(c, store)
   const to = msg.to ?? c.to
-  const raw = Buffer.from(mimeMessage({ from: t.email, to, subject: msg.subject, text: msg.text, html: msg.html, ...(msg.fromName ? { fromName: msg.fromName } : {}), ...(msg.inReplyTo ? { inReplyTo: msg.inReplyTo } : {}) })).toString('base64url')
+  const raw = Buffer.from(mimeMessage({ from: t.email, to, subject: msg.subject, text: msg.text, html: msg.html, ...(msg.fromName ? { fromName: msg.fromName } : {}), ...(msg.inReplyTo ? { inReplyTo: msg.inReplyTo } : {}), ...(msg.attachments?.length ? { attachments: msg.attachments } : {}) })).toString('base64url')
   const res = await fetch(`${GMAIL()}/users/me/messages/send`, {
     method: 'POST',
     headers: { authorization: `Bearer ${t.accessToken}`, 'content-type': 'application/json' },

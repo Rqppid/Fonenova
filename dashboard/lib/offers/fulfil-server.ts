@@ -47,6 +47,7 @@ export function invoiceDeps(store: Store): InvoiceDeps {
   return {
     ...fulfilDeps(store),
     allowApprove: process.env.OFFERS_ALLOW_APPROVE === 'true',
+    mail: gmailConfig() ? async (m) => { const c = gmailConfig()!; const sent = await sendGmail(c, { to: m.to, subject: m.subject, text: m.text, html: m.html, fromName: 'FoneNova', attachments: m.attachments }, store); return { id: sent.id } } : undefined,
     filing: { dirs: filingDirs(), upload: (path, bytes) => fileInvoicePdf(path, bytes, store) },
     bills: async () => ({ bills: ((await loadSnapshot())?.invoices ?? []).filter((i) => i.kind === 'bill'), pairs: await loadXeroPairs() }),
     savePair: async (p) => {

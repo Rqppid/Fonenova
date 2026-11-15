@@ -24,6 +24,8 @@ import type { Fulfilment, InvoiceStep, Offer } from './types'
 export interface InvoiceDeps extends FulfilDeps {
   /** OFFERS_ALLOW_APPROVE: approving in a live organisation. Its own switch. */
   allowApprove: boolean
+  /** Sends one email from info@fonenova.com (the connected Gmail), with attachments. Null when Gmail is not set up. */
+  mail?: (m: { to: string; subject: string; text: string; html: string; attachments: { filename: string; mime: string; bytes: Uint8Array }[] }) => Promise<{ id: string }>
   /** Where the PDF goes, and how it gets there. */
   filing: { dirs: FilingDirs | null; upload: (path: string, bytes: Uint8Array) => Promise<{ kind: 'ok' | 'exists' | 'unavailable' | 'error'; message?: string }> }
   /** The synced bills and the confirmed pairs, for matching. */
@@ -192,14 +194,24 @@ export async function approveInvoice(offerId: string, d: InvoiceDeps, opts: { co
 // ---------------------------------------------------------------------------
 // Send
 // ---------------------------------------------------------------------------
-export async function sendInvoice(offerId: string, d: InvoiceDeps, opts: { confirm: boolean }): Promise<ActionResult> {
+export type SendVia = 'gmail' | 'xero'
+
+/**
+ * Send the approved invoice to the client, one of two ways, each its own click:
+ * - `gmail`: from info@fonenova.com through the connected Gmail, to the client's invoice emails, with the
+ *   invoice PDF (fetched from Xero) attached. Independent of Xero's email service.
+ * - `xero`: Xero emails it to the contact's own address (which must be one of the client's invoice emails).
+ */
+export async function sendInvoice(offerId: string, d: InvoiceDeps, opts: { confirm: boolean; via?: SendVia }): Promise<ActionResult> {
+  const via: SendVia = opts.via ?? 'xero'
   if (!opts.confirm) return { ok: false, message: 'Sending needs your confirmation: tick the box first.' }
   const r = await ready(d, offerId)
   if (!r.ok) return r
   const { offer, f, client, api, org } = r
   if (f.approve?.state !== 'done') return { ok: false, message: 'Approve the invoice first.' }
   if (f.send?.state === 'done') return { ok: true, message: 'Already sent.' }
-  if (!api.emailInvoice) return { ok: false, message: 'The Xero write connection cannot send email.' }
+  if (via === 'xero' && !api.emailInvoice) return { ok: false, message: 'The Xero write connection cannot send email.' }
+  if (via === 'gmail' && (!d.mail || !api.invoicePdf)) return { ok: false, message: 'Gmail is not connected, or the PDF cannot be fetched from Xero.' }
   if (!org.isDemo) {
     if (f.test) return { ok: false, message: 'A test invoice is never sent from the live organisation.' }
     if (!d.allowLiveXero) return { ok: false, message: 'Live Xero is switched off (XERO_WRITE_ALLOW_LIVE). Nothing was sent.' }
@@ -220,20 +232,33 @@ export async function sendInvoice(offerId: string, d: InvoiceDeps, opts: { confi
       await setStep(d, offerId, 'send', { state: 'done', at: nowOf(d).toISOString(), detail: 'Xero shows it was already emailed.' }, `Invoice ${inv.number}: Xero shows it was already emailed`)
       return { ok: true, message: 'Xero shows it was already emailed.' }
     }
-    // Xero emails only the contact's own address, so it must be one of the addresses chosen for this client.
-    const wanted = client.invoiceEmails.map((e) => e.trim().toLowerCase())
+    const wanted = client.invoiceEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)
     if (wanted.length === 0) return stop(`${client.name} has no invoice email address (Offers, Clients).`)
-    if (!inv.contactEmail) return stop('The Xero contact has no email address. Add one in Xero first.')
-    if (!wanted.includes(inv.contactEmail.toLowerCase())) return stop(`Xero would email ${inv.contactEmail}, which is not one of ${client.name}'s invoice emails (${client.invoiceEmails.join(', ')}). Fix the contact in Xero or the client here.`)
-    await api.emailInvoice(f.draft.invoiceId!)
-    await setStep(d, offerId, 'send', { state: 'done', at: nowOf(d).toISOString(), detail: inv.contactEmail }, `Invoice ${inv.number} emailed by Xero to ${inv.contactEmail}`)
-    await d.notify(`${f.test ? '[TEST] ' : ''}Invoice ${inv.number} was emailed to ${inv.contactEmail} (${eur(inv.totalCents)}).`, link(d, offer))
+    if (inv.totalCents !== (await figuresOrWhy(d.store, offer)).figures?.grandCents) return stop(`The invoice in Xero totals ${eur(inv.totalCents)}, which is not what the client accepted. Nothing was sent.`)
+
+    let where: string
+    if (via === 'xero') {
+      // Xero emails only the contact's own address, so it must be one of the addresses chosen for this client.
+      if (!inv.contactEmail) return stop('The Xero contact has no email address. Add one in Xero first.')
+      if (!wanted.includes(inv.contactEmail.toLowerCase())) return stop(`Xero would email ${inv.contactEmail}, which is not one of ${client.name}'s invoice emails (${client.invoiceEmails.join(', ')}). Fix the contact in Xero or the client here.`)
+      await api.emailInvoice!(f.draft.invoiceId!)
+      where = inv.contactEmail
+    } else {
+      const pdf = await api.invoicePdf!(f.draft.invoiceId!)
+      const subject = `${f.test ? '[TEST] ' : ''}Invoice ${inv.number} from FoneNova Ltd`
+      const text = `Hello ${client.name},\n\nPlease find attached invoice ${inv.number} for ${eur(inv.totalCents)} (EUR).\nPayment details are on the invoice.\n\nKind regards,\nFoneNova Ltd`
+      const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#111"><p>Hello ${client.name.replace(/&/g, '&amp;').replace(/</g, '&lt;')},</p><p>Please find attached invoice <strong>${inv.number}</strong> for <strong>${eur(inv.totalCents)}</strong> (EUR).<br>Payment details are on the invoice.</p><p>Kind regards,<br>FoneNova Ltd</p></div>`
+      await d.mail!({ to: wanted.join(', '), subject, text, html, attachments: [{ filename: `Invoice-${inv.number}.pdf`, mime: 'application/pdf', bytes: pdf }] })
+      where = `${wanted.join(', ')} (Gmail, PDF attached)`
+    }
+    await setStep(d, offerId, 'send', { state: 'done', at: nowOf(d).toISOString(), detail: where }, `Invoice ${inv.number} emailed${via === 'gmail' ? ' from info@fonenova.com' : ' by Xero'} to ${where}`)
+    await d.notify(`${f.test ? '[TEST] ' : ''}Invoice ${inv.number} was emailed to ${where} (${eur(inv.totalCents)}).`, link(d, offer))
     // The PDF is filed straight after, best effort: a problem there never undoes the send.
     await fileInvoice(offerId, d).catch(() => {})
-    return { ok: true, message: `Invoice ${inv.number} emailed to ${inv.contactEmail}.` }
+    return { ok: true, message: `Invoice ${inv.number} emailed to ${where}.` }
   } catch (e) {
-    // The email may or may not have gone: it is not retried by itself, and the next press checks Xero's sent flag first.
-    return stop(`${e instanceof Error ? e.message.slice(0, 160) : 'Xero could not be reached'}. It may or may not have been sent: check the invoice in Xero before pressing again.`, 'failed')
+    // The email may or may not have gone: it is not retried by itself, and the next press checks again first.
+    return stop(`${e instanceof Error ? e.message.slice(0, 160) : 'It could not be sent'}. It may or may not have been sent: check ${via === 'gmail' ? 'the Sent folder of info@fonenova.com' : 'the invoice in Xero'} before pressing again.`, 'failed')
   }
 }
 

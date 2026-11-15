@@ -119,8 +119,12 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
             <>
               {(send?.state === 'blocked' || send?.state === 'failed') && <p className="text-warn" data-testid="send-reason">{send.reason}</p>}
               {sendHint && <p data-testid="send-hint">{sendHint}</p>}
-              <label className="flex items-start gap-2"><input type="checkbox" checked={ticks.send} onChange={(e) => setTicks({ ...ticks, send: e.target.checked })} /><span>Xero may email this invoice now, to the contact&apos;s email address in Xero (it must be one of the client&apos;s invoice emails).</span></label>
-              <Button size="sm" variant="primary" disabled={busy !== null || !ticks.send || !!sendHint} onClick={() => act('invoice_send', { confirm: ticks.send })} data-testid="send-button">{busy === 'invoice_send' ? 'Sending…' : 'Send the invoice'}</Button>
+              <label className="flex items-start gap-2"><input type="checkbox" checked={ticks.send} onChange={(e) => setTicks({ ...ticks, send: e.target.checked })} /><span>This invoice may be emailed to the client now.</span></label>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="primary" disabled={busy !== null || !ticks.send || !!sendHint} onClick={() => act('invoice_send', { confirm: ticks.send, via: 'gmail' })} data-testid="send-gmail-button">{busy === 'invoice_send' ? 'Sending…' : 'Send with Gmail (PDF attached)'}</Button>
+                <Button size="sm" variant="outline" disabled={busy !== null || !ticks.send || !!sendHint} onClick={() => act('invoice_send', { confirm: ticks.send, via: 'xero' })} data-testid="send-xero-button">Send with Xero email</Button>
+              </div>
+              <p className="text-[12.5px]">Gmail sends from info@fonenova.com to the client&apos;s invoice emails with the PDF attached. Xero email sends from Xero to the contact&apos;s own address (it must be one of the client&apos;s invoice emails). Use one, not both.</p>
             </>
           )}
         </Row>
