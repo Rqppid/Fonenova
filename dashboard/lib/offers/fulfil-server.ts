@@ -1,6 +1,10 @@
 /** The real connections behind lib/offers/fulfil.ts: Gmail, the Xero write app, the ledger. */
 import 'server-only'
 import { gmailConfig, hasReplied, sendGmail } from '../gmail'
+import { fileInvoicePdf, filingDirs } from '../onedrive-invoice'
+import { loadSnapshot } from '../xero/client'
+import { saveXeroPairs } from '../data-source'
+import type { InvoiceDeps } from './invoice-flow'
 import { loadXeroPairs } from '../data-source'
 import { getJson, type Store } from '../store'
 import { xeroWriteApi, xeroWriteConfig } from '../xero/write'
@@ -34,6 +38,20 @@ export function fulfilDeps(store: Store, over: Partial<Pick<FulfilDeps, 'notify'
     replied: async (threadId, afterIso) => {
       if (!g) throw new Error('Gmail is not set up')
       return hasReplied(g, threadId, afterIso, store)
+    },
+  }
+}
+
+/** The deps for approving, sending, filing and bill matching: the same as fulfilDeps plus their own switches and connections. */
+export function invoiceDeps(store: Store): InvoiceDeps {
+  return {
+    ...fulfilDeps(store),
+    allowApprove: process.env.OFFERS_ALLOW_APPROVE === 'true',
+    filing: { dirs: filingDirs(), upload: (path, bytes) => fileInvoicePdf(path, bytes, store) },
+    bills: async () => ({ bills: ((await loadSnapshot())?.invoices ?? []).filter((i) => i.kind === 'bill'), pairs: await loadXeroPairs() }),
+    savePair: async (p) => {
+      const pairs = await loadXeroPairs()
+      await saveXeroPairs([...pairs.filter((x) => x.orderId !== p.orderId), p])
     },
   }
 }

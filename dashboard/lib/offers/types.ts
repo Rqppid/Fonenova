@@ -124,6 +124,25 @@ export interface DraftStep {
   /** How many times Xero has definitely refused this draft. Each refusal moves the idempotency key on, so a fixed setting is never answered from a stored refusal. */
   rejections?: number
 }
+/** One step after the draft exists: approve, send, file. Each needs an explicit click; none happens by itself. */
+export interface InvoiceStep {
+  /** blocked = a check failed and says why; failed = the attempt ended badly (an unknown outcome is never retried by itself); skipped = not set up. */
+  state: 'working' | 'done' | 'blocked' | 'failed' | 'skipped'
+  reason?: string
+  at?: string
+  /** For the send step: where Xero sent it. For the filing step: where the PDF is. */
+  detail?: string
+}
+
+/** The supplier's bill that belongs to this order, once confirmed. It is saved as a Xero pair as well, so the Matching page and profit figures use it. */
+export interface BillMatch {
+  billId: string
+  billNumber: string
+  supplier: string
+  totalCents: number
+  confirmedAt: string
+}
+
 export interface Fulfilment {
   /** FN-ORD-### for a real offer, TEST-### for a test one. */
   orderRef: string
@@ -133,6 +152,10 @@ export interface Fulfilment {
   draft: DraftStep
   /** A "this needs you" message was sent for a stuck step, so it is not repeated every 5 minutes. */
   alerted?: boolean
+  approve?: InvoiceStep
+  send?: InvoiceStep
+  filing?: InvoiceStep
+  bill?: BillMatch
 }
 
 export interface Offer {

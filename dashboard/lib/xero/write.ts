@@ -254,7 +254,7 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
     const headers = new Headers(init.headers)
     headers.set('authorization', `Bearer ${t.accessToken}`)
     headers.set('xero-tenant-id', t.tenantId)
-    headers.set('accept', 'application/json')
+    if (!headers.has('accept')) headers.set('accept', 'application/json')
     const res = await fetch(`${API}${path}`, { ...init, headers, cache: 'no-store', signal: AbortSignal.timeout(30_000) })
     // One line per request: which tenant it carried and what came back. No tokens, no headers, no bodies.
     xeroLog({ method: init.method ?? 'GET', path: path.split('?')[0], tenant: short(t.tenantId), status: res.status })
@@ -359,6 +359,42 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       }
       if (found.length === 0) found.push('Checked the currency, tax type, account, contact and branding theme: all exist. The message from Xero above is the cause.')
       return found
+    },
+    async getInvoice(id: string) {
+      const res = await call(`/Invoices/${encodeURIComponent(id)}`)
+      if (res.status === 404) return null
+      check(res, 'reading the invoice')
+      const inv = ((await res.json()) as { Invoices?: (RawInvoice & { Reference?: string; CurrencyCode?: string; Total?: number; SentToContact?: boolean; Contact?: { ContactID?: string } })[] }).Invoices?.[0]
+      if (!inv) return null
+      const contactId = inv.Contact?.ContactID ?? null
+      let contactEmail: string | null = null
+      let hasAddress: boolean | null = null
+      if (contactId) {
+        const cRes = await call(`/Contacts/${encodeURIComponent(contactId)}`)
+        if (cRes.ok) {
+          const c = ((await cRes.json()) as { Contacts?: { EmailAddress?: string; Addresses?: Record<string, unknown>[] }[] }).Contacts?.[0]
+          contactEmail = c?.EmailAddress?.trim() || null
+          hasAddress = (c?.Addresses ?? []).some((a) => ['AddressLine1', 'AddressLine2', 'AddressLine3', 'AddressLine4', 'City', 'PostalCode'].some((k) => typeof a[k] === 'string' && (a[k] as string).trim() !== ''))
+        }
+      }
+      return { id: String(inv.InvoiceID ?? id), number: String(inv.InvoiceNumber ?? ''), status: String(inv.Status ?? ''), reference: String(inv.Reference ?? ''), currency: String(inv.CurrencyCode ?? ''), totalCents: Math.round(Number(inv.Total ?? 0) * 100), contactId, contactEmail, hasAddress, sentToContact: inv.SentToContact === true }
+    },
+    async approveInvoice(id: string) {
+      const res = await call(`/Invoices/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `fn-approve-${id}`.slice(0, 128) }, body: JSON.stringify({ Invoices: [{ InvoiceID: id, Status: 'AUTHORISED' }] }) })
+      if (res.status === 400) throw new Error(`Xero would not approve it: ${parseXeroValidation(await res.text().catch(() => '')).messages[0] ?? 'no reason given'}`)
+      check(res, 'approving the invoice')
+    },
+    async emailInvoice(id: string) {
+      const res = await call(`/Invoices/${encodeURIComponent(id)}/Email`, { method: 'POST' })
+      if (res.status === 400) throw new Error(`Xero would not email it: ${parseXeroValidation(await res.text().catch(() => '')).messages[0] ?? 'no reason given'}`)
+      check(res, 'emailing the invoice')
+    },
+    async invoicePdf(id: string) {
+      const res = await call(`/Invoices/${encodeURIComponent(id)}`, { headers: { accept: 'application/pdf' } })
+      check(res, 'downloading the PDF')
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      if (bytes.length < 100 || String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') throw new Error('Xero did not return a PDF')
+      return bytes
     },
     async contactCheck(contactId: string, sinceDate: string) {
       const cRes = await call(`/Contacts/${encodeURIComponent(contactId)}`)

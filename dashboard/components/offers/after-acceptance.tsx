@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CircleAlert, CircleCheck, Clock, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { InvoiceSteps, type InvoiceSetup } from '@/components/offers/invoice-steps'
+import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import { xeroDraftUrl } from '@/lib/offers/xero-url'
 import type { Offer } from '@/lib/offers/types'
 import { cn } from '@/lib/utils'
@@ -25,7 +27,7 @@ function Row({ tone, title, children, testId }: { tone: Tone; title: string; chi
 }
 
 /** What follows an acceptance: the reply to Mobile One and the DRAFT invoice in Xero. */
-export function AfterAcceptance({ offer }: { offer: Offer }) {
+export function AfterAcceptance({ offer, invoice, bills }: { offer: Offer; invoice?: InvoiceSetup; bills?: BillCandidate[] }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -103,6 +105,7 @@ export function AfterAcceptance({ offer }: { offer: Offer }) {
           {d.state === 'failed' && <p>Did not work (try {d.attempts}): {d.reason}. It tries again every 5 minutes.</p>}
         </Row>
       </ul>
+      <InvoiceSteps offer={offer} setup={invoice} bills={bills} />
       {stuck && <Button size="sm" variant="outline" disabled={busy} onClick={() => act('fulfil_retry')}>{busy ? 'Working…' : 'Try again now'}</Button>}
       {error && <p role="alert" className="text-[13px] text-loss">{error}</p>}
     </div>
