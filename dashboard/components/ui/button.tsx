@@ -11,9 +11,10 @@ const variants: Record<Variant, string> = {
   primary: 'bg-navy text-white hover:bg-navy-2',
 }
 const sizes: Record<Size, string> = {
-  sm: 'h-8 px-2.5 text-[13px] gap-1.5',
-  md: 'h-9 px-3 text-sm gap-2',
-  icon: 'h-8 w-8 justify-center',
+  // Phone-sized below 640px (44px tall), the original desktop sizes from there up.
+  sm: 'h-11 px-3.5 text-[14px] gap-1.5 sm:h-8 sm:px-2.5 sm:text-[13px]',
+  md: 'h-11 px-3.5 text-sm gap-2 sm:h-9 sm:px-3',
+  icon: 'h-11 w-11 justify-center sm:h-8 sm:w-8',
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size }>(

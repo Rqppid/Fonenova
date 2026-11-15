@@ -1,6 +1,6 @@
 import { Lock } from 'lucide-react'
 import { BrandMark, BrandName } from '@/components/brand'
-import { authConfig } from '@/lib/auth'
+import { authConfig, safeNext } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +15,7 @@ const ERRORS: Record<string, string> = {
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams
   const cfg = authConfig()
+  const next = safeNext(sp.next)
   const error = sp.error ? ERRORS[sp.error] ?? 'Sign-in failed. Try again.' : !cfg.ok ? ERRORS.config : null
 
   return (
@@ -34,7 +35,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         {sp.signedout && !error && <p className="mt-4 rounded-md bg-subtle px-3 py-2 text-[12.5px] text-ink-2">You are signed out.</p>}
         {error && <p role="alert" className="mt-4 rounded-md bg-loss-soft px-3 py-2 text-[12.5px] text-loss">{error}</p>}
         {cfg.ok && (
-          <a href="/auth/login" className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-navy text-sm font-medium text-white hover:bg-navy-2">
+          <a href={next === '/' ? '/auth/login' : `/auth/login?next=${encodeURIComponent(next)}`} className="mt-5 flex h-11 sm:h-10 w-full items-center justify-center gap-2 rounded-md bg-navy text-sm font-medium text-white hover:bg-navy-2">
             Sign in with Google
           </a>
         )}

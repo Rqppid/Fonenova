@@ -73,3 +73,17 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
+
+/*
+ * Phones. Fingers need bigger targets than a mouse, and iPhone Safari zooms the whole page when a
+ * field under 16px is tapped. Desktop (640px and up) is untouched.
+ */
+@media (max-width: 639px) {
+  html { -webkit-text-size-adjust: 100%; }
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea { font-size: 16px; min-height: 2.75rem; }
+  input[type='checkbox'],
+  input[type='radio'] { width: 1.25rem; height: 1.25rem; flex-shrink: 0; margin-top: 0.1rem; }
+  label:has(> input[type='checkbox']) { padding-block: 0.25rem; }
+}

@@ -12,7 +12,10 @@
 
 export const SESSION_COOKIE = 'fn_session'
 export const OAUTH_COOKIE = 'fn_oauth'
-export const SESSION_TTL_SECONDS = 12 * 60 * 60
+/** 30 days, renewed whenever the dashboard is used (see sessionNeedsRenewal), so it only ends after a month of not opening it. */
+export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+/** A session is re-issued once it is this much older than a fresh one, so a busy day costs one new cookie, not one per request. */
+const RENEW_AFTER_SECONDS = 24 * 60 * 60
 const OAUTH_TTL_SECONDS = 10 * 60
 
 export interface AuthConfig {
@@ -122,6 +125,23 @@ export async function createSession(email: string, c: AuthConfig): Promise<strin
   return sign({ email, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS }, c.secret)
 }
 
+/** True once a valid session has used up a day of its life: time to hand out a fresh 30 days. Pure. */
+export function sessionNeedsRenewal(s: Session, nowSeconds = Math.floor(Date.now() / 1000)): boolean {
+  return s.exp - nowSeconds < SESSION_TTL_SECONDS - RENEW_AFTER_SECONDS
+}
+
+/**
+ * Where to go after signing in, taken from a link the user came in on. Only a path on this site is
+ * accepted: it must start with one "/", and may not be "//host", have a backslash, a control character,
+ * or a scheme. Anything else is the home page, so a crafted link can never send the owner elsewhere.
+ */
+export function safeNext(raw: string | null | undefined): string {
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 500) return '/'
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\u0000-\u001f\u007f]/.test(raw)) return '/'
+  if (/^\/(login|auth\/)/.test(raw)) return '/'
+  return raw
+}
+
 /** A session is valid only if signed by us, unexpired, and for the allowed email. */
 export async function readSession(token: string | undefined, c: AuthConfig): Promise<Session | null> {
   const s = await verify<Session>(token, c.secret)
@@ -146,10 +166,14 @@ export interface OAuthState {
   nonce: string
   verifier: string
   exp: number
+  /** Where to land after sign-in (already passed through safeNext). */
+  next?: string
 }
 
-export async function startOAuth(c: AuthConfig): Promise<{ url: string; cookie: string }> {
+export async function startOAuth(c: AuthConfig, next?: string): Promise<{ url: string; cookie: string }> {
+  const dest = safeNext(next)
   const st: OAuthState = {
+    ...(dest !== '/' ? { next: dest } : {}),
     state: randomToken(),
     nonce: randomToken(),
     verifier: randomToken(48),
@@ -171,7 +195,7 @@ export async function startOAuth(c: AuthConfig): Promise<{ url: string; cookie: 
   return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`, cookie: await sign({ ...st }, c.secret) }
 }
 
-export type CallbackResult = { ok: true; email: string } | { ok: false; reason: 'state' | 'exchange' | 'token' | 'denied' }
+export type CallbackResult = { ok: true; email: string; next?: string } | { ok: false; reason: 'state' | 'exchange' | 'token' | 'denied' }
 
 export async function finishOAuth(
   c: AuthConfig,
@@ -223,5 +247,5 @@ export async function finishOAuth(
 
   const email = typeof claims.email === 'string' ? claims.email.toLowerCase() : ''
   if (claims.email_verified !== true || email !== c.allowedEmail) return { ok: false, reason: 'denied' }
-  return { ok: true, email }
+  return { ok: true, email, ...(st.next ? { next: safeNext(st.next) } : {}) }
 }

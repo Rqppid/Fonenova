@@ -71,7 +71,7 @@ function Nav({ onPick, badges }: { onPick?: () => void; badges?: NavBadges }) {
                     onPick?.()
                   }}
                   aria-current={active ? 'page' : undefined}
-                  className={cn('flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13.5px]', active ? 'bg-white/[0.09] font-medium text-white' : 'text-navy-ink/85 hover:bg-white/[0.05] hover:text-white')}
+                  className={cn('flex h-11 items-center gap-2.5 rounded-md px-2.5 text-[14px] lg:h-9 lg:text-[13.5px]', active ? 'bg-white/[0.09] font-medium text-white' : 'text-navy-ink/85 hover:bg-white/[0.05] hover:text-white')}
                 >
                   <Icon className="h-4 w-4" aria-hidden />
                   <span className="flex-1">{label}</span>
@@ -102,6 +102,33 @@ function Account({ email }: { email: string | null }) {
   )
 }
 
+/** The three places used most on a phone, and the full menu. Hidden on a desktop, where the sidebar does this. */
+const TABS = [
+  { href: '/', label: 'Overview', icon: LayoutDashboard },
+  { href: '/offers', label: 'Offers', icon: Inbox },
+  { href: '/payments', label: 'Payments', icon: Landmark },
+] as const
+
+function BottomNav({ onMenu }: { onMenu: () => void }) {
+  const path = usePathname()
+  const base = 'flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11.5px] font-medium'
+  return (
+    <nav aria-label="Quick navigation" data-testid="bottom-nav" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-white/10 bg-navy pb-[env(safe-area-inset-bottom)] lg:hidden">
+      {TABS.map(({ href, label, icon: Icon }) => {
+        const active = href === '/' ? path === '/' : path.startsWith(href)
+        return (
+          <a key={href} href={href} aria-current={active ? 'page' : undefined} className={cn(base, active ? 'text-white' : 'text-navy-ink/70')}>
+            <Icon className="h-5 w-5" aria-hidden />{label}
+          </a>
+        )
+      })}
+      <button type="button" onClick={onMenu} className={cn(base, 'text-navy-ink/70')}>
+        <Menu className="h-5 w-5" aria-hidden />Menu
+      </button>
+    </nav>
+  )
+}
+
 export function Shell({ children, footer, email = null, badges }: { children: React.ReactNode; footer?: React.ReactNode; email?: string | null; badges?: NavBadges }) {
   const [open, setOpen] = useState(false)
   return (
@@ -114,12 +141,12 @@ export function Shell({ children, footer, email = null, badges }: { children: Re
           <div className="text-[11.5px] leading-relaxed text-navy-ink/60">{footer}</div>
         </div>
       </aside>
-      <div className="sticky top-0 z-30 flex h-12 items-center justify-between bg-navy px-4 lg:hidden">
+      <div className="sticky top-0 z-30 flex h-[calc(3rem+env(safe-area-inset-top))] items-center justify-between bg-navy px-4 pt-[env(safe-area-inset-top)] lg:hidden">
         <Wordmark />
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10"
           aria-label="Open navigation"
         >
           <Menu className="h-5 w-5" />
@@ -134,7 +161,8 @@ export function Shell({ children, footer, email = null, badges }: { children: Re
           </div>
         </div>
       </Sheet>
-      <main className="mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 lg:px-8">{children}</main>
+      <main className="mx-auto max-w-[1400px] px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8 lg:pb-16">{children}</main>
+      <BottomNav onMenu={() => setOpen(true)} />
     </div>
   )
 }

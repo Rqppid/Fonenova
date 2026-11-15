@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Inbox, Plus, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +34,15 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
   const [openId, setOpenId] = useState<string | null>(selected ?? offers.find((o) => o.status === 'needs_review')?.id ?? null)
   const [showDismissed, setShowDismissed] = useState(false)
   const router = useRouter()
+  // On a phone the detail sits below the list: bring it into view when an offer is opened (a tap, or a link such as Telegram's).
+  const detailRef = useRef<HTMLDivElement>(null)
+  const first = useRef(true)
+  useEffect(() => {
+    const deepLink = first.current && !!selected
+    const tapped = !first.current
+    first.current = false
+    if ((deepLink || tapped) && openId && window.matchMedia('(max-width: 1023px)').matches) detailRef.current?.scrollIntoView({ block: 'start' })
+  }, [openId, selected])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   async function createTest() {
@@ -101,7 +110,9 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
             })}
           </ul>
         </section>
-        {open ? <OfferDetail key={open.id + open.updatedAt} offer={open} clients={clients} send={send} /> : <section className="rounded-lg border border-line bg-surface px-5 py-10 text-center text-[13.5px] text-ink-2">Choose an offer to review it.</section>}
+        <div ref={detailRef} className="min-w-0 scroll-mt-14">
+          {open ? <OfferDetail key={open.id + open.updatedAt} offer={open} clients={clients} send={send} /> : <section className="rounded-lg border border-line bg-surface px-5 py-10 text-center text-[13.5px] text-ink-2">Choose an offer to review it.</section>}
+        </div>
       </div>
     </div>
   )
@@ -166,7 +177,8 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
   const set = (i: number, k: keyof Draft, v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)))
 
   return (
-    <section aria-labelledby="offer-title" className="min-w-0 space-y-4 rounded-lg border border-line bg-surface p-5" data-testid="offer-detail">
+    <section aria-labelledby="offer-title" className="min-w-0 space-y-4 rounded-lg border border-line bg-surface p-4 sm:p-5" data-testid="offer-detail">
+      <a href="#offers-list" className="inline-flex h-10 items-center text-[13.5px] font-medium text-accent lg:hidden" data-testid="back-to-list">← All offers</a>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 id="offer-title" className="text-[16px] font-semibold text-ink">{offer.source.subject || '(no subject)'}</h2>
@@ -177,32 +189,32 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
       {offer.testOnly && <p className="rounded-md border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] text-warn" data-testid="test-banner">TEST OFFER. Made here for testing, not from Mobile One. It can only be priced for and sent to the test client, never a real client.</p>}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] text-[13px]">
-          <thead className="text-left text-[12px] text-ink-3">
+        <table className="w-full text-[13px] max-sm:block sm:min-w-[600px]">
+          <thead className="text-left text-[12px] text-ink-3 max-sm:hidden">
             <tr><th className="py-1.5 pr-2 font-medium">Model</th><th className="px-2 py-1.5 font-medium">Storage</th><th className="px-2 py-1.5 font-medium">Grade / spec</th><th className="px-2 py-1.5 text-right font-medium">Qty</th><th className="px-2 py-1.5 text-right font-medium">Unit cost €</th><th className="px-2 py-1.5 text-right font-medium">Line cost</th><th className="w-8" /></tr>
           </thead>
-          <tbody>
+          <tbody className="max-sm:block">
             {rows.map((r, i) => {
               const l = parsed[i]
               const f = l ? flags.get(l.id) ?? [] : [{ code: 'qty', level: 'error', message: 'Fill in model, a whole quantity and a price.' }]
               const input = 'h-8 w-full rounded border border-line bg-surface px-2 text-[13px] disabled:bg-subtle'
               return (
-                <tr key={r.id} className="border-t border-line align-top" data-testid="offer-line">
-                  <td className="py-1.5 pr-2"><input aria-label={`Model, line ${i + 1}`} disabled={!editable} className={cn(input, f.some((x) => x.code === 'model') && 'border-loss')} value={r.model} onChange={(e) => set(i, 'model', e.target.value)} />
+                <tr key={r.id} className="border-t border-line align-top max-sm:mb-3 max-sm:grid max-sm:grid-cols-2 max-sm:gap-2 max-sm:rounded-md max-sm:border max-sm:p-3" data-testid="offer-line">
+                  <td data-label="Model" className="py-1.5 pr-2 max-sm:col-span-2 max-sm:py-0 max-sm:pr-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]"><input aria-label={`Model, line ${i + 1}`} disabled={!editable} className={cn(input, f.some((x) => x.code === 'model') && 'border-loss')} value={r.model} onChange={(e) => set(i, 'model', e.target.value)} />
                     {f.length > 0 && <ul className="mt-1 space-y-0.5">{f.map((x, k) => <li key={k} className={cn('text-[12px]', x.level === 'error' ? 'text-loss' : 'text-warn')}>{x.message}</li>)}</ul>}
                     {r.sourceText && <p className="mt-1 text-[11.5px] text-ink-3">Email: “{r.sourceText}”</p>}
                   </td>
-                  <td className="px-2 py-1.5"><input aria-label={`Storage, line ${i + 1}`} disabled={!editable} className={input} value={r.storage} onChange={(e) => set(i, 'storage', e.target.value)} /></td>
-                  <td className="px-2 py-1.5"><input aria-label={`Grade, line ${i + 1}`} disabled={!editable} className={input} value={r.grade} onChange={(e) => set(i, 'grade', e.target.value)} /></td>
-                  <td className="px-2 py-1.5"><input aria-label={`Quantity, line ${i + 1}`} disabled={!editable} inputMode="numeric" className={cn(input, 'text-right')} value={r.qty} onChange={(e) => set(i, 'qty', e.target.value)} /></td>
-                  <td className="px-2 py-1.5"><input aria-label={`Unit cost, line ${i + 1}`} disabled={!editable} inputMode="decimal" className={cn(input, 'text-right')} value={r.cost} onChange={(e) => set(i, 'cost', e.target.value)} /></td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{l ? eur(l.qty * l.unitCostCents) : '—'}</td>
-                  <td className="py-1.5 pl-1">{editable && <button type="button" aria-label={`Delete line ${i + 1}`} className="rounded p-1.5 text-ink-3 hover:bg-subtle hover:text-loss" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" aria-hidden /></button>}</td>
+                  <td data-label="Storage" className="px-2 py-1.5 max-sm:p-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]"><input aria-label={`Storage, line ${i + 1}`} disabled={!editable} className={input} value={r.storage} onChange={(e) => set(i, 'storage', e.target.value)} /></td>
+                  <td data-label="Grade / spec" className="px-2 py-1.5 max-sm:p-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]"><input aria-label={`Grade, line ${i + 1}`} disabled={!editable} className={input} value={r.grade} onChange={(e) => set(i, 'grade', e.target.value)} /></td>
+                  <td data-label="Qty" className="px-2 py-1.5 max-sm:p-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]"><input aria-label={`Quantity, line ${i + 1}`} disabled={!editable} inputMode="numeric" className={cn(input, 'text-right')} value={r.qty} onChange={(e) => set(i, 'qty', e.target.value)} /></td>
+                  <td data-label="Unit cost €" className="px-2 py-1.5 max-sm:p-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]"><input aria-label={`Unit cost, line ${i + 1}`} disabled={!editable} inputMode="decimal" className={cn(input, 'text-right')} value={r.cost} onChange={(e) => set(i, 'cost', e.target.value)} /></td>
+                  <td data-label="Line cost" className="px-2 py-1.5 text-right tabular-nums max-sm:p-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{l ? eur(l.qty * l.unitCostCents) : '—'}</td>
+                  <td className="py-1.5 pl-1 max-sm:p-0 max-sm:text-right">{editable && <button type="button" aria-label={`Delete line ${i + 1}`} className="rounded p-1.5 text-ink-3 hover:bg-subtle hover:text-loss" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" aria-hidden /></button>}</td>
                 </tr>
               )
             })}
           </tbody>
-          <tfoot><tr className="border-t border-line font-semibold"><td className="py-2" colSpan={3}>{lines.length} line{lines.length === 1 ? '' : 's'}</td><td className="px-2 py-2 text-right tabular-nums">{offerUnits(lines)}</td><td /><td className="px-2 py-2 text-right tabular-nums">{eur(offerCostCents(lines))}</td><td /></tr></tfoot>
+          <tfoot className="max-sm:block"><tr className="border-t border-line font-semibold max-sm:flex max-sm:flex-wrap max-sm:gap-x-4 max-sm:pt-2"><td className="py-2" colSpan={3}>{lines.length} line{lines.length === 1 ? '' : 's'}</td><td className="px-2 py-2 text-right tabular-nums max-sm:px-0">{offerUnits(lines)} units</td><td className="max-sm:hidden" /><td className="px-2 py-2 text-right tabular-nums max-sm:px-0">{eur(offerCostCents(lines))}</td><td className="max-sm:hidden" /></tr></tfoot>
         </table>
       </div>
 

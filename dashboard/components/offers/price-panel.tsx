@@ -80,38 +80,38 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
 
           {result && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-[13px]">
-                <thead className="text-left text-[12px] text-ink-3">
+              <table className="w-full text-[13px] max-sm:block sm:min-w-[560px]">
+                <thead className="text-left text-[12px] text-ink-3 max-sm:hidden">
                   <tr><th className="py-1.5 pr-2 font-medium">Line</th><th className="px-2 py-1.5 text-right font-medium">Cost</th><th className="px-2 py-1.5 text-right font-medium">Margin €</th><th className="px-2 py-1.5 text-right font-medium">Sale</th><th className="px-2 py-1.5 text-right font-medium">Line sale</th><th className="px-2 py-1.5 text-right font-medium">Profit</th></tr>
                 </thead>
-                <tbody>
+                <tbody className="max-sm:block">
                   {offer.lines.map((l, i) => {
                     const p = result.lines[i]
                     return (
-                      <tr key={l.id} className={cn('border-t border-line', p.low && 'bg-loss-soft/40')} data-testid="price-line" data-low={p.low}>
-                        <td className="py-1.5 pr-2">{[l.model, l.storage, l.grade].filter(Boolean).join(' ')} <span className="text-ink-3">× {l.qty}</span></td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{eur(l.unitCostCents)}</td>
-                        <td className="px-2 py-1.5 text-right">
+                      <tr key={l.id} className={cn('border-t border-line max-sm:mb-3 max-sm:grid max-sm:grid-cols-2 max-sm:gap-2 max-sm:rounded-md max-sm:border max-sm:p-3', p.low && 'bg-loss-soft/40')} data-testid="price-line" data-low={p.low}>
+                        <td className="py-1.5 pr-2 max-sm:col-span-2 max-sm:p-0 font-medium sm:font-normal">{[l.model, l.storage, l.grade].filter(Boolean).join(' ')} <span className="text-ink-3">× {l.qty}</span></td>
+                        <td data-label="Cost" className="px-2 py-1.5 text-right tabular-nums max-sm:p-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(l.unitCostCents)}</td>
+                        <td data-label="Margin €" className="px-2 py-1.5 text-right max-sm:p-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">
                           {locked ? <span className="tabular-nums">{p.marginCents === null ? '—' : (p.marginCents / 100).toFixed(2)}</span> : (
                             <input aria-label={`Margin for line ${i + 1}`} inputMode="decimal" value={over[l.id] ?? ''} onChange={(e) => setOver({ ...over, [l.id]: e.target.value })} placeholder={p.marginCents === null ? '' : (p.marginCents / 100).toFixed(2)} className={cn('h-8 w-24 rounded border bg-surface px-2 text-right text-[13px]', p.overridden ? 'border-accent' : 'border-line')} />
                           )}
                         </td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{p.saleCents === null ? '—' : eur(p.saleCents)}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{p.lineSaleCents === null ? '—' : eur(p.lineSaleCents)}</td>
-                        <td className={cn('px-2 py-1.5 text-right tabular-nums', p.low && 'font-semibold text-loss')}>{p.lineProfitCents === null ? '—' : eur(p.lineProfitCents)}</td>
+                        <td data-label="Sale" className="px-2 py-1.5 text-right tabular-nums max-sm:p-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{p.saleCents === null ? '—' : eur(p.saleCents)}</td>
+                        <td data-label="Line sale" className="px-2 py-1.5 text-right tabular-nums max-sm:p-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{p.lineSaleCents === null ? '—' : eur(p.lineSaleCents)}</td>
+                        <td data-label="Profit" className={cn('px-2 py-1.5 text-right tabular-nums max-sm:p-0 max-sm:text-left '+'max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]', p.low && 'font-semibold text-loss')}>{p.lineProfitCents === null ? '—' : eur(p.lineProfitCents)}</td>
                       </tr>
                     )
                   })}
                 </tbody>
-                <tfoot>
-                  <tr className="border-t border-line font-semibold" data-testid="price-totals">
-                    <td className="py-2" colSpan={3}>Total · {result.totals.units} units · cost {eur(result.totals.costCents)}</td>
-                    <td />
-                    <td className="px-2 py-2 text-right tabular-nums">{eur(result.totals.saleCents)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">{eur(result.totals.profitCents)}</td>
+                <tfoot className="max-sm:block">
+                  <tr className="border-t border-line font-semibold max-sm:flex max-sm:flex-wrap max-sm:gap-x-4 max-sm:pt-2" data-testid="price-totals">
+                    <td className="py-2 max-sm:w-full" colSpan={3}>Total · {result.totals.units} units · cost {eur(result.totals.costCents)}</td>
+                    <td className="max-sm:hidden" />
+                    <td data-label="Sale" className="px-2 py-2 text-right tabular-nums max-sm:px-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(result.totals.saleCents)}</td>
+                    <td data-label="Profit" className="px-2 py-2 text-right tabular-nums max-sm:px-0 max-sm:text-left max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(result.totals.profitCents)}</td>
                   </tr>
-                  {result.totals.shippingCents > 0 && <tr data-testid="price-shipping"><td className="py-1" colSpan={4}>Shipping</td><td className="px-2 py-1 text-right tabular-nums">{eur(result.totals.shippingCents)}</td><td className="px-2 py-1 text-right tabular-nums">{eur(result.totals.shippingProfitCents)}</td></tr>}
-                  <tr className="font-semibold" data-testid="price-grand"><td className="py-1" colSpan={4}>Total to the client</td><td className="px-2 py-1 text-right tabular-nums">{eur(result.totals.grandCents)}</td><td className="px-2 py-1 text-right tabular-nums">{eur(result.totals.profitCents + result.totals.shippingProfitCents)}</td></tr>
+                  {result.totals.shippingCents > 0 && <tr data-testid="price-shipping" className="max-sm:flex max-sm:flex-wrap max-sm:gap-x-4"><td className="py-1" colSpan={4}>Shipping</td><td data-label="Charged" className="px-2 py-1 text-right tabular-nums max-sm:px-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(result.totals.shippingCents)}</td><td data-label="Profit" className="px-2 py-1 text-right tabular-nums max-sm:px-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(result.totals.shippingProfitCents)}</td></tr>}
+                  <tr className="font-semibold max-sm:flex max-sm:flex-wrap max-sm:gap-x-4" data-testid="price-grand"><td className="py-1 max-sm:w-full" colSpan={4}>Total to the client</td><td data-label="Total" className="px-2 py-1 text-right tabular-nums max-sm:px-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(result.totals.grandCents)}</td><td data-label="Profit" className="px-2 py-1 text-right tabular-nums max-sm:px-0 max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[12px] max-sm:before:text-ink-3 max-sm:before:content-[attr(data-label)]">{eur(result.totals.profitCents + result.totals.shippingProfitCents)}</td></tr>
                   {result.totals.profitPerUnitCents !== null && <tr><td colSpan={6} className="pb-1 text-right text-[12.5px] text-ink-2">Profit per unit on average {eur(result.totals.profitPerUnitCents)}</td></tr>}
                 </tfoot>
               </table>
