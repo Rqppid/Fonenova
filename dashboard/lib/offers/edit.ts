@@ -21,7 +21,7 @@ export type OfferEdit =
   | { action: 'reply_ok'; id: string }
   | { action: 'fulfil_retry'; id: string }
   | { action: 'invoice_approve'; id: string; confirm: boolean }
-  | { action: 'invoice_send'; id: string; confirm: boolean }
+  | { action: 'invoice_send'; id: string; confirm: boolean; via: 'gmail' | 'xero' }
   | { action: 'invoice_file'; id: string }
   | { action: 'draft_recheck'; id: string }
   | { action: 'bill_confirm'; id: string; billId: string }
@@ -43,7 +43,8 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
   }
   if (b.action === 'unprice') return { ok: true, value: { action: 'unprice', id } }
   if (b.action === 'send' || b.action === 'withdraw' || b.action === 'unlock' || b.action === 'reply_ok' || b.action === 'fulfil_retry' || b.action === 'invoice_file' || b.action === 'draft_recheck') return { ok: true, value: { action: b.action, id } }
-  if (b.action === 'invoice_approve' || b.action === 'invoice_send') return { ok: true, value: { action: b.action, id, confirm: b.confirm === true } }
+  if (b.action === 'invoice_approve') return { ok: true, value: { action: 'invoice_approve', id, confirm: b.confirm === true } }
+  if (b.action === 'invoice_send') return { ok: true, value: { action: 'invoice_send', id, confirm: b.confirm === true, via: b.via === 'gmail' ? 'gmail' : 'xero' } }
   if (b.action === 'bill_confirm') {
     const billId = str(b.billId, 80)
     if (!billId || !/^[0-9a-fA-F-]{20,40}$/.test(billId)) return { ok: false, error: 'Choose a bill from the suggestions' }

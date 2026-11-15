@@ -37,7 +37,7 @@ export async function PUT(req: Request) {
   if (e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm') {
     const d = invoiceDeps(store)
     const r = e.action === 'invoice_approve' ? await approveInvoice(e.id, d, { confirm: e.confirm })
-      : e.action === 'invoice_send' ? await sendInvoice(e.id, d, { confirm: e.confirm })
+      : e.action === 'invoice_send' ? await sendInvoice(e.id, d, { confirm: e.confirm, via: e.via })
       : e.action === 'invoice_file' ? await fileInvoice(e.id, d)
       : e.action === 'draft_recheck' ? await recheckDraft(e.id, d)
       : await confirmBill(e.id, e.billId, d)

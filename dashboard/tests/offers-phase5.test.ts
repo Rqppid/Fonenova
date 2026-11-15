@@ -367,8 +367,9 @@ describe('the screen and the edit checks', () => {
   })
   it('the new actions are checked: confirmation defaults to no, the bill id must look like one', () => {
     expect(checkEdit({ action: 'invoice_approve', id: 'of_p5' })).toEqual({ ok: true, value: { action: 'invoice_approve', id: 'of_p5', confirm: false } })
-    expect(checkEdit({ action: 'invoice_send', id: 'of_p5', confirm: true })).toEqual({ ok: true, value: { action: 'invoice_send', id: 'of_p5', confirm: true } })
-    expect(checkEdit({ action: 'invoice_send', id: 'of_p5', confirm: 'yes' })).toEqual({ ok: true, value: { action: 'invoice_send', id: 'of_p5', confirm: false } })
+    expect(checkEdit({ action: 'invoice_send', id: 'of_p5', confirm: true })).toEqual({ ok: true, value: { action: 'invoice_send', id: 'of_p5', confirm: true, via: 'xero' } })
+    expect(checkEdit({ action: 'invoice_send', id: 'of_p5', confirm: true, via: 'gmail' })).toEqual({ ok: true, value: { action: 'invoice_send', id: 'of_p5', confirm: true, via: 'gmail' } })
+    expect(checkEdit({ action: 'invoice_send', id: 'of_p5', confirm: 'yes' })).toEqual({ ok: true, value: { action: 'invoice_send', id: 'of_p5', confirm: false, via: 'xero' } })
     expect(checkEdit({ action: 'invoice_file', id: 'of_p5' })).toMatchObject({ ok: true })
     expect(checkEdit({ action: 'bill_confirm', id: 'of_p5', billId: 'b2-0000000000000000000' })).toMatchObject({ ok: true })
     expect(checkEdit({ action: 'bill_confirm', id: 'of_p5', billId: 'x' })).toMatchObject({ ok: false })

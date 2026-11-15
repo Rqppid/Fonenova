@@ -29,7 +29,17 @@ const NOTICE: Record<string, { text: string; good: boolean }> = {
 const field = 'h-9 w-full rounded-md border border-line bg-surface px-2.5 text-[13px] text-ink'
 
 /** The second Xero connection, used only to create DRAFT invoices for accepted offers. */
+/**
+ * The card keeps what you are typing (tax type, account, theme) in its own state. It is rebuilt whenever the
+ * organisation drafts go to, or the saved settings, change, so it never keeps showing (or saving) the previous
+ * organisation's branding theme after you switch organisation.
+ */
 export function XeroWriteCard({ state, notice }: { state: XeroWriteState; notice: string | null }) {
+  const key = `${state.orgs?.find((o) => o.selected)?.tenantId ?? 'none'}|${state.settings.taxType}|${state.settings.accountCode}|${state.settings.brandingThemeId ?? ''}`
+  return <XeroWriteCardBody key={key} state={state} notice={notice} />
+}
+
+function XeroWriteCardBody({ state, notice }: { state: XeroWriteState; notice: string | null }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState({ taxType: state.settings.taxType, accountCode: state.settings.accountCode, brandingThemeId: state.settings.brandingThemeId ?? '' })
