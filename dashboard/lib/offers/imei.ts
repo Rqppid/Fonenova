@@ -33,7 +33,7 @@ export function kindOf(filename: string, mime: string): ImeiFile['kind'] {
 }
 
 export interface ImeiCandidate extends ImeiFile { from: string; subject: string; receivedAt: string }
-const toCandidate = (m: ThreadMessage, f: MailFile): ImeiCandidate => ({ messageId: f.messageId, attachmentId: f.attachmentId, filename: f.filename, mime: f.mime, size: f.size, kind: kindOf(f.filename, f.mime), from: m.from, subject: m.subject, receivedAt: m.receivedAt })
+const toCandidate = (m: ThreadMessage, f: MailFile): ImeiCandidate => ({ messageId: f.messageId, partId: f.partId, filename: f.filename, mime: f.mime, size: f.size, kind: kindOf(f.filename, f.mime), from: m.from, subject: m.subject, receivedAt: m.receivedAt })
 
 /** Files other people sent in a thread: not ours, not pictures (signature logos). Newest first. Pure. */
 export function candidatesIn(messages: readonly ThreadMessage[]): ImeiCandidate[] {
@@ -79,7 +79,7 @@ export async function findImeiFiles(offerId: string, d: ImeiDeps, opts: { thread
 }
 
 /** Step 2: keep the ones picked. The server looks the thread up again, so only a real file of that thread can be saved. */
-export async function attachImeiFiles(offerId: string, d: ImeiDeps, input: { thread: string; picks: { messageId: string; attachmentId: string }[] }): Promise<ActionResult> {
+export async function attachImeiFiles(offerId: string, d: ImeiDeps, input: { thread: string; picks: { messageId: string; partId: string }[] }): Promise<ActionResult> {
   const r = await locate(d, offerId, input.thread)
   if (!r.ok) return r
   const f = r.offer.fulfilment!
@@ -89,10 +89,10 @@ export async function attachImeiFiles(offerId: string, d: ImeiDeps, input: { thr
   const found = candidatesIn(r.messages)
   const files: ImeiFile[] = []
   for (const p of input.picks) {
-    const c = found.find((x) => x.messageId === p.messageId && x.attachmentId === p.attachmentId)
+    const c = found.find((x) => x.messageId === p.messageId && x.partId === p.partId)
     if (!c) return { ok: false, message: 'One of the files is not in that thread any more. Look again.' }
-    if (files.some((x) => x.messageId === c.messageId && x.attachmentId === c.attachmentId)) continue
-    files.push({ messageId: c.messageId, attachmentId: c.attachmentId, filename: c.filename, mime: c.mime, size: c.size, kind: c.kind })
+    if (files.some((x) => x.messageId === c.messageId && x.partId === c.partId)) continue
+    files.push({ messageId: c.messageId, partId: c.partId, filename: c.filename, mime: c.mime, size: c.size, kind: c.kind })
   }
   if (files.reduce((n, x) => n + x.size, 0) > MAX_TOTAL_BYTES) return { ok: false, message: 'Those files are too big to email together (15 MB at most). Pick fewer.' }
   const at = nowOf(d).toISOString()
@@ -121,8 +121,12 @@ export async function fetchImeiAttachments(d: ImeiDeps, pack: ImeiPack): Promise
   if (!d.gmailThread) throw new Error('Gmail cannot read the IMEI files right now')
   const out: { filename: string; mime: string; bytes: Uint8Array }[] = []
   let total = 0
+  // Gmail's fetch handle for a file changes every time the message is read, so read the thread again and take the current one.
+  const now = (await d.gmailThread.messages(pack.threadId)).flatMap((m) => m.files)
   for (const f of pack.files) {
-    const bytes = await d.gmailThread.file(f.messageId, f.attachmentId)
+    const fresh = now.find((x) => x.messageId === f.messageId && x.partId === f.partId && x.filename === f.filename)
+    if (!fresh) throw new Error(`${f.filename} is no longer in the Gmail thread`)
+    const bytes = await d.gmailThread.file(f.messageId, fresh.attachmentId)
     total += bytes.length
     if (total > MAX_TOTAL_BYTES) throw new Error('The IMEI files are too big to email together')
     out.push({ filename: f.filename, mime: f.mime, bytes })

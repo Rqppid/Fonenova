@@ -223,7 +223,7 @@ export interface MailMessage {
   attachments: string[]
 }
 
-type Part = { mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string; size?: number }; parts?: Part[]; headers?: { name: string; value: string }[] }
+type Part = { partId?: string; mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string; size?: number }; parts?: Part[]; headers?: { name: string; value: string }[] }
 
 const decode = (data: string | undefined) => (data ? Buffer.from(data, 'base64url').toString('utf8') : '')
 
@@ -313,7 +313,8 @@ export async function getMessage(c: GmailConfig, id: string, store: Store = getS
 // Attachments in a thread (for IMEI sheets and shipping labels). Reading only.
 // ---------------------------------------------------------------------------
 
-export interface MailFile { messageId: string; attachmentId: string; filename: string; mime: string; size: number }
+/** partId is the file's fixed place in the email; attachmentId is Gmail's handle for fetching it and is NOT stable (Gmail hands out a different one each time the message is read). */
+export interface MailFile { messageId: string; partId: string; attachmentId: string; filename: string; mime: string; size: number }
 export interface ThreadMessage { id: string; from: string; subject: string; receivedAt: string; labels: string[]; files: MailFile[] }
 
 /** The attachments of one Gmail API message (format=full): real files only, not inline text parts. Pure, for tests. */
@@ -321,7 +322,7 @@ export function parseGmailFiles(j: { id?: string; payload?: Part }): MailFile[] 
   const out: MailFile[] = []
   const walk = (p: Part | undefined) => {
     if (!p) return
-    if (p.filename && p.body?.attachmentId) out.push({ messageId: String(j.id ?? ''), attachmentId: p.body.attachmentId, filename: p.filename, mime: p.mimeType ?? 'application/octet-stream', size: Number(p.body.size ?? 0) })
+    if (p.filename && p.body?.attachmentId && p.partId) out.push({ messageId: String(j.id ?? ''), partId: p.partId, attachmentId: p.body.attachmentId, filename: p.filename, mime: p.mimeType ?? 'application/octet-stream', size: Number(p.body.size ?? 0) })
     for (const c of p.parts ?? []) walk(c)
   }
   walk(j.payload)

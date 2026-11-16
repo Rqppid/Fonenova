@@ -26,7 +26,7 @@ export type OfferEdit =
   | { action: 'draft_recheck'; id: string }
   | { action: 'bill_confirm'; id: string; billId: string }
   | { action: 'imei_find'; id: string; thread?: string }
-  | { action: 'imei_attach'; id: string; thread: string; picks: { messageId: string; attachmentId: string }[] }
+  | { action: 'imei_attach'; id: string; thread: string; picks: { messageId: string; partId: string }[] }
   | { action: 'imei_clear'; id: string }
   | { action: 'imei_send'; id: string; confirm: boolean }
 
@@ -56,11 +56,11 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     const thread = str(b.thread, 300)
     if (!thread) return { ok: false, error: 'Look for the files first' }
     if (!Array.isArray(b.picks) || b.picks.length > 8) return { ok: false, error: 'Pick up to 8 files' }
-    const picks: { messageId: string; attachmentId: string }[] = []
+    const picks: { messageId: string; partId: string }[] = []
     for (const p of b.picks as unknown[]) {
       const x = (p ?? {}) as Record<string, unknown>
-      if (typeof x.messageId !== 'string' || !/^[0-9a-f]{8,24}$/i.test(x.messageId) || typeof x.attachmentId !== 'string' || x.attachmentId.length < 8 || x.attachmentId.length > 1000) return { ok: false, error: 'One of the picked files is not valid. Look again.' }
-      picks.push({ messageId: x.messageId, attachmentId: x.attachmentId })
+      if (typeof x.messageId !== 'string' || !/^[0-9a-f]{8,24}$/i.test(x.messageId) || typeof x.partId !== 'string' || !/^[0-9.]{1,24}$/.test(x.partId)) return { ok: false, error: 'One of the picked files is not valid. Look again.' }
+      picks.push({ messageId: x.messageId, partId: x.partId })
     }
     return { ok: true, value: { action: 'imei_attach', id, thread, picks } }
   }

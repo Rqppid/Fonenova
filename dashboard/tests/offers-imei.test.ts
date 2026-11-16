@@ -27,7 +27,7 @@ function mem(): Store & { data: Map<string, unknown> } {
   return { name: 'mem', data, async get(k: StoreKey) { return data.has(k) ? { kind: 'ok' as const, value: structuredClone(data.get(k)) } : { kind: 'missing' as const } }, async set(k: StoreKey, v: unknown) { data.set(k, structuredClone(v)) }, async del(k: StoreKey) { data.delete(k) }, async withLock<T>(n: string, fn: () => Promise<T>) { const prev = tails.get(n) ?? Promise.resolve(); const run = prev.then(fn, fn); tails.set(n, run.catch(() => {})); return run } }
 }
 
-const msg = (id: string, from: string, labels: string[], files: { name: string; size?: number; mime?: string }[], at = 1): ThreadMessage => ({ id, from, subject: 'Re: Offer', receivedAt: HOURS(10 - at), labels, files: files.map((f, i) => ({ messageId: id, attachmentId: `att-${id}-${i}-xxxxxxxx`, filename: f.name, mime: f.mime ?? 'application/octet-stream', size: f.size ?? 2048 })) })
+const msg = (id: string, from: string, labels: string[], files: { name: string; size?: number; mime?: string }[], at = 1): ThreadMessage => ({ id, from, subject: 'Re: Offer', receivedAt: HOURS(10 - at), labels, files: files.map((f, i) => ({ messageId: id, partId: `0.${i + 1}`, attachmentId: `att-${id}-${i}-xxxxxxxx`, filename: f.name, mime: f.mime ?? 'application/octet-stream', size: f.size ?? 2048 })) })
 const MO = 'Mobile One Trade <bv@mobileone.info>'
 const threadFixture = (): ThreadMessage[] => [
   msg('aaaaaaaaaaaaaaa1', MO, ['INBOX'], [{ name: 'Invoice 2026050050.pdf', mime: 'application/pdf' }], 1),
@@ -49,17 +49,17 @@ function setup(o: Offer, opts: { isDemo?: boolean; mailFails?: boolean; allowRea
   const mails: Mail[] = []
   const inv = { id: 'inv-1', number: '2026051', status: 'AUTHORISED', reference: 'x', currency: 'EUR', totalCents: 481_000, contactId: WAVE, contactEmail: 'accounts@wave.example', hasAddress: true, sentToContact: false } as XeroInvoiceDetail
   const api: XeroApi = { async organisation() { return { name: isDemo ? 'Demo Company (UK)' : 'Fonenova Ltd', isDemo } }, async invoiceNumbers() { return [] }, async findByReference() { return null }, async createDraft() { throw new Error('n/a') }, async getInvoice() { return { ...inv } }, async emailInvoice() {}, async invoicePdf() { return PDF } }
-  const files = new Map<string, Uint8Array>()
   const thread = opts.thread ?? threadFixture()
-  for (const m of thread) for (const f of m.files) files.set(`${m.id}:${f.attachmentId}`, /IMEI/.test(f.filename) ? SHEET : LABEL)
+  let reads = 0
+  const bytesOf = (name: string) => (/IMEI/.test(name) ? SHEET : LABEL)
   const asked: string[] = []
   const d: InvoiceDeps = { store, now: NOW, allowReal: opts.allowReal ?? true, allowLiveXero: opts.allowLive ?? true, allowApprove: true, ownerAddress: 'owner@example.test', notify: async () => true, knownOrderIds: async () => [], xero: () => api, reply: async () => ({ id: 'r' }), replied: async () => false,
     mail: async (m) => { if (opts.mailFails) throw new Error('Gmail did not send it (500)'); mails.push(m); return { id: `sent-${mails.length}`, threadId: m.threadId ?? 'newthread0000001' } },
-    ...(opts.noGmailThread ? {} : { gmailThread: { async messages(t: string) { asked.push(t); return t === THREAD || t === '1a2b3c4d5e6f7a8b' ? thread : [] }, async file(mid: string, aid: string) { const b = files.get(`${mid}:${aid}`); if (!b) throw new Error('Gmail returned an empty attachment'); return b }, async rfcId() { return '<invoice-msg@mail.gmail.com>' } } }),
+    ...(opts.noGmailThread ? {} : { gmailThread: { async messages(t: string) { asked.push(t); reads++; return t === THREAD || t === '1a2b3c4d5e6f7a8b' ? thread.map((m) => ({ ...m, files: m.files.map((f) => ({ ...f, attachmentId: `${f.attachmentId}-read${reads}` })) })) : [] }, async file(mid: string, aid: string) { const f = thread.flatMap((m) => m.files).find((x) => x.messageId === mid && aid === `${x.attachmentId}-read${reads}`); if (!f) throw new Error('Gmail returned an empty attachment'); return bytesOf(f.filename) }, async rfcId() { return '<invoice-msg@mail.gmail.com>' } } }),
     filing: { dirs: null, upload: async () => ({ kind: 'ok' }) }, bills: async () => ({ bills: [], pairs: [] }), savePair: async () => {} }
   return { d, mails, asked, thread, get: () => (store.data.get('offers') as Offer[])[0] }
 }
-const pick = (ms: ThreadMessage[], name: string) => { const f = ms.flatMap((m) => m.files).find((x) => x.filename === name)!; return { messageId: f.messageId, attachmentId: f.attachmentId } }
+const pick = (ms: ThreadMessage[], name: string) => { const f = ms.flatMap((m) => m.files).find((x) => x.filename === name)!; return { messageId: f.messageId, partId: f.partId } }
 
 describe('reading Gmail threads', () => {
   it('turns what is pasted into a thread id: the hex id, or the decimal id in a Gmail link', () => {
@@ -70,8 +70,8 @@ describe('reading Gmail threads', () => {
     expect(gmailThreadIdFrom('')).toBeNull()
   })
   it('lists real attachments from nested parts and skips the text bodies', () => {
-    const j = { id: 'm1', payload: { mimeType: 'multipart/mixed', parts: [{ mimeType: 'multipart/alternative', parts: [{ mimeType: 'text/plain', filename: '', body: { data: 'aGk' } }] }, { mimeType: 'application/pdf', filename: 'label.pdf', body: { attachmentId: 'ATT1', size: 1234 } }, { mimeType: 'application/zip', filename: '', body: { attachmentId: 'NOPE', size: 5 } }] } }
-    expect(parseGmailFiles(j)).toEqual([{ messageId: 'm1', attachmentId: 'ATT1', filename: 'label.pdf', mime: 'application/pdf', size: 1234 }])
+    const j = { id: 'm1', payload: { mimeType: 'multipart/mixed', parts: [{ mimeType: 'multipart/alternative', parts: [{ mimeType: 'text/plain', filename: '', body: { data: 'aGk' } }] }, { partId: '0.1', mimeType: 'application/pdf', filename: 'label.pdf', body: { attachmentId: 'ATT1', size: 1234 } }, { mimeType: 'application/zip', filename: '', body: { attachmentId: 'NOPE', size: 5 } }] } }
+    expect(parseGmailFiles(j)).toEqual([{ messageId: 'm1', partId: '0.1', attachmentId: 'ATT1', filename: 'label.pdf', mime: 'application/pdf', size: 1234 }])
     const t = parseGmailThread({ messages: [{ ...j, internalDate: '1779276425000', labelIds: ['INBOX'], payload: { ...j.payload, headers: [{ name: 'From', value: MO }, { name: 'Subject', value: 'IMEI' }] } }] })
     expect(t[0]).toMatchObject({ id: 'm1', from: MO, subject: 'IMEI', labels: ['INBOX'] })
     expect(t[0].files).toHaveLength(1)
@@ -121,7 +121,7 @@ describe('finding and choosing the files', () => {
   it('saves only files that really are in that thread, and only where they are, never the bytes', async () => {
     const t = setup(offer())
     const sheet = pick(t.thread, 'IMEI sheet.xlsx')
-    expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [{ messageId: sheet.messageId, attachmentId: 'forged-attachment-id' }] })).toMatchObject({ ok: false, message: expect.stringContaining('not in that thread') })
+    expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [{ messageId: sheet.messageId, partId: '9.9' }] })).toMatchObject({ ok: false, message: expect.stringContaining('not in that thread') })
     expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [] })).toMatchObject({ ok: false })
     const r = await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [sheet, pick(t.thread, 'DHL label.pdf'), sheet] })
     expect(r).toMatchObject({ ok: true, message: expect.stringContaining('attached to the invoice email') })
@@ -137,6 +137,30 @@ describe('finding and choosing the files', () => {
     await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI sheet.xlsx')] })
     expect(await clearImeiFiles('of_i1', t.d)).toMatchObject({ ok: true })
     expect(t.get().fulfilment!.imei).toBeUndefined()
+  })
+})
+
+describe('Gmail hands out a different attachment handle on every read', () => {
+  it('a file chosen from one listing is still found, and fetched, when the handle has since changed', async () => {
+    const t = setup(offer())
+    const listed = await findImeiFiles('of_i1', t.d)
+    const sheet = listed.candidates!.find((c) => c.filename === 'IMEI sheet.xlsx')!
+    // The choice carries the file's place in the email, not Gmail's handle for it.
+    expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [{ messageId: sheet.messageId, partId: sheet.partId }] })).toMatchObject({ ok: true })
+    expect(JSON.stringify(t.get().fulfilment!.imei)).not.toContain('attachmentId')
+    // Several reads later (the thread is read again to send), the bytes still come.
+    await t.d.gmailThread!.messages(THREAD)
+    await t.d.gmailThread!.messages(THREAD)
+    expect(await sendInvoice('of_i1', t.d, { confirm: true, via: 'gmail' })).toMatchObject({ ok: true })
+    expect(t.mails[0].attachments[1]).toMatchObject({ filename: 'IMEI sheet.xlsx' })
+    expect(t.mails[0].attachments[1].bytes).toEqual(SHEET)
+  })
+  it('a chosen file that has left the thread stops the send with a plain message', async () => {
+    const t = setup(offer())
+    await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI sheet.xlsx')] })
+    t.thread.splice(0, t.thread.length, ...t.thread.filter((m) => m.id !== 'aaaaaaaaaaaaaaa3'))
+    expect(await sendInvoice('of_i1', t.d, { confirm: true, via: 'gmail' })).toMatchObject({ ok: false, message: expect.stringContaining('no longer in the Gmail thread') })
+    expect(t.mails).toHaveLength(0)
   })
 })
 
@@ -239,7 +263,7 @@ describe('the panel', () => {
   const withImei = (state: 'chosen' | 'sent-with' | 'sent-later', invoiceSent: boolean) => {
     const o = offer()
     if (invoiceSent) o.fulfilment!.send = { state: 'done', at: HOURS(1), detail: 'a@x.example (Gmail, PDF attached)' }
-    o.fulfilment!.imei = { threadId: THREAD, chosenAt: HOURS(1), files: [{ messageId: 'aaaaaaaaaaaaaaa3', attachmentId: 'att-aaaaaaaaaaaaaaa3-0-xxxxxxxx', filename: 'IMEI sheet.xlsx', mime: 'x', size: 52_000, kind: 'imei' }], ...(state === 'chosen' ? {} : { sent: { state: 'done' as const, at: HOURS(0), how: state === 'sent-with' ? ('with_invoice' as const) : ('follow_up' as const), to: 'a@x.example' } }) }
+    o.fulfilment!.imei = { threadId: THREAD, chosenAt: HOURS(1), files: [{ messageId: 'aaaaaaaaaaaaaaa3', partId: '0.1', filename: 'IMEI sheet.xlsx', mime: 'x', size: 52_000, kind: 'imei' }], ...(state === 'chosen' ? {} : { sent: { state: 'done' as const, at: HOURS(0), how: state === 'sent-with' ? ('with_invoice' as const) : ('follow_up' as const), to: 'a@x.example' } }) }
     return o
   }
   it('before anything is chosen it offers to find the files', () => {
