@@ -149,7 +149,8 @@ export interface BillMatch {
 /** One file picked from a Mobile One email (an IMEI sheet or a shipping label). Only where it is is saved, never the file. */
 export interface ImeiFile {
   messageId: string
-  attachmentId: string
+  /** The file's fixed place in that email. Gmail's own attachment handle changes on every read, so it is looked up again when needed. */
+  partId: string
   filename: string
   mime: string
   size: number

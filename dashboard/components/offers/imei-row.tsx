@@ -27,7 +27,7 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
   if (!f) return null
   const imei = f.imei
   const invoiceSent = f.send?.state === 'done'
-  const key = (c: { messageId: string; attachmentId: string }) => `${c.messageId}:${c.attachmentId}`
+  const key = (c: { messageId: string; partId: string }) => `${c.messageId}:${c.partId}`
 
   async function act(action: string, extra: object = {}) {
     setBusy(action)
@@ -56,7 +56,7 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
 
   async function keep() {
     if (!found) return
-    const picks = found.candidates.filter((c) => picked.has(key(c))).map((c) => ({ messageId: c.messageId, attachmentId: c.attachmentId }))
+    const picks = found.candidates.filter((c) => picked.has(key(c))).map((c) => ({ messageId: c.messageId, partId: c.partId }))
     const out = await act('imei_attach', { thread: found.threadId, picks })
     if (out) setFound(null)
   }
