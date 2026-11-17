@@ -156,7 +156,7 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
           )}
         </Row>
 
-        <Row tone={f.imei?.sent?.state === 'done' ? 'ok' : f.imei?.sent?.state === 'failed' ? 'bad' : 'wait'} title="IMEI list and shipping label (from Mobile One)" testId="step-imei">
+        <Row tone={f.imei?.sent?.state === 'done' ? 'ok' : f.imei?.sent?.state === 'failed' ? 'bad' : 'wait'} title="IMEI list (from Mobile One)" testId="step-imei">
           <ImeiBlock offer={offer} sendHint={sendHint} />
         </Row>
 
