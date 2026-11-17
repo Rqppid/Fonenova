@@ -48,8 +48,15 @@ export interface DraftBody {
   CurrencyCode: 'EUR'
   LineAmountTypes: 'Exclusive'
   BrandingThemeID?: string
-  LineItems: { Description: string; Quantity: number; UnitAmount: number; AccountCode: string; TaxType: string }[]
+  LineItems: DraftLine[]
 }
+
+/** One priced line: an item or the shipping. */
+export interface PricedLine { Description: string; Quantity: number; UnitAmount: number; AccountCode: string; TaxType: string }
+/** A line of text only (a client's printed note): no quantity or amount, so it never changes a total. */
+export interface NoteLine { Description: string }
+export type DraftLine = PricedLine | NoteLine
+export const isPricedLine = (l: DraftLine): l is PricedLine => 'Quantity' in l
 
 export interface XeroInvoiceRef { id: string; number: string; status: string }
 
@@ -168,7 +175,7 @@ export { xeroDraftUrl } from './xero-url'
 /** The description of the shipping line on the draft. */
 export const SHIPPING_DESCRIPTION = 'SHIPPING CHARGES'
 
-export function buildDraftBody(a: { number: string; reference: string; contactId: string; lines: readonly PublicLine[]; shippingCents?: number; terms: Client['terms']; now: Date; settings: DraftSettings }): DraftBody {
+export function buildDraftBody(a: { number: string; reference: string; contactId: string; lines: readonly PublicLine[]; shippingCents?: number; terms: Client['terms']; now: Date; settings: DraftSettings; /** The client's own line printed under the items (for example the margin scheme wording its contract asks for). */ note?: string | null }): DraftBody {
   return {
     Type: 'ACCREC',
     Status: 'DRAFT',
@@ -184,6 +191,8 @@ export function buildDraftBody(a: { number: string; reference: string; contactId
       ...a.lines.map((l) => ({ Description: l.description, Quantity: l.qty, UnitAmount: euros(l.unitSaleCents), AccountCode: a.settings.accountCode, TaxType: a.settings.taxType })),
       // Its own line, on the same account and tax type as the items (invoice 2026047 does the same).
       ...(a.shippingCents && a.shippingCents > 0 ? [{ Description: SHIPPING_DESCRIPTION, Quantity: 1, UnitAmount: euros(a.shippingCents), AccountCode: a.settings.accountCode, TaxType: a.settings.taxType }] : []),
+      // Text only, after everything that is charged.
+      ...(a.note && a.note.trim() ? [{ Description: a.note.trim() }] : []),
     ],
   }
 }
@@ -233,7 +242,7 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
         if (appeared) return { ok: true, id: appeared.id, number: appeared.number, org: org.name, adopted: true, warnings }
         const n = nextInvoiceNumber(await a.api.invoiceNumbers(), org.isDemo) // re-read from Xero every time
         if (!n.ok) return fail(n.error)
-        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings })
+        const body = buildDraftBody({ number: n.number, reference: a.reference, contactId, lines: a.lines, shippingCents: a.shippingCents, terms: a.client.terms, now, settings, note: a.client.invoiceNote })
         try {
           // The key carries the invoice number: a different number is a different request, and Xero
           // answers the same key with the same (stored) result.

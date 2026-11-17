@@ -169,7 +169,7 @@ describe('one shipping figure everywhere', () => {
     expect(b.LineItems).toHaveLength(2)
     expect(b.LineItems[1]).toEqual({ Description: 'SHIPPING CHARGES', Quantity: 1, UnitAmount: 240, AccountCode: '200', TaxType: 'NONE' })
     expect(SHIPPING_DESCRIPTION).toBe('SHIPPING CHARGES')
-    expect(b.LineItems.reduce((n, l) => n + l.Quantity * l.UnitAmount, 0)).toBe(4810) // the lines add up to the total the client accepted
+    expect(b.LineItems.reduce((n, l) => n + ('Quantity' in l ? l.Quantity * l.UnitAmount : 0), 0)).toBe(4810) // the lines add up to the total the client accepted
     expect(buildDraftBody({ number: '1', reference: 'r', contactId: 'c', lines: [], shippingCents: 0, terms: 'upfront', now: NOW, settings: DEFAULT_DRAFT_SETTINGS }).LineItems).toEqual([])
   })
 })
@@ -242,7 +242,7 @@ describe('A: the shipping line on the accepted draft', () => {
     const li = x.created[0].LineItems
     expect(li.map((l) => l.Description)).toEqual(['iPhone 16 128GB A', 'SHIPPING CHARGES'])
     expect(li[1]).toMatchObject({ Quantity: 1, UnitAmount: 240, AccountCode: '200', TaxType: 'NONE' })
-    expect(li.reduce((n, l) => n + l.Quantity * l.UnitAmount, 0) * 100).toBe(t.get().sends![0].totalCents)
+    expect(li.reduce((n, l) => n + ('Quantity' in l ? l.Quantity * l.UnitAmount : 0), 0) * 100).toBe(t.get().sends![0].totalCents)
     expect(t.get().fulfilment!.draft.state).toBe('done')
   })
   it('an offer that has lost its shipping figure is blocked with the real reason, not defaulted to zero', async () => {

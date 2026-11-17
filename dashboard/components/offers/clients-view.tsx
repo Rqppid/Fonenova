@@ -107,6 +107,9 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
               <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Shipping multiplier (Mobile One&apos;s shipping × this)</span>
                 <input aria-label="Shipping multiplier" inputMode="decimal" className={cn(input, 'w-28 text-right')} value={x.mult} onChange={(e) => t(c.id, 'mult', e.target.value)} placeholder="2" />
               </label>
+              <label className="text-[13px] sm:col-span-2"><span className="mb-1 block font-medium text-ink-2">Line printed under the items on every invoice (optional)</span>
+                <input aria-label="Invoice line" maxLength={200} className={input} value={c.invoiceNote ?? ''} onChange={(e) => patch(c.id, { invoiceNote: e.target.value || undefined })} placeholder="for example the wording this client's contract asks for" />
+              </label>
               <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Invoice PDF folder</span>
                 <select className={input} value={c.folder} onChange={(e) => patch(c.id, { folder: e.target.value as Folder })}>{FOLDERS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>
               </label>
