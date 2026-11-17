@@ -77,7 +77,7 @@ export async function sendOffer(id: string, d: SendDeps): Promise<Result> {
     if (!r.ok) return { error: r.errors[0] ?? 'The price is no longer valid. Price it again.' }
     const expiresAt = new Date(nowDate.getTime() + OFFER_VALID_MS).toISOString()
     snapshot.client = client
-    snapshot.value = { clientName: client.name, lines: publicLines(o.lines, r), units: r.totals.units, shippingCents: r.totals.shippingCents, totalCents: r.totals.grandCents, issuedAt: now, expiresAt, test: client.test, status: 'open' }
+    snapshot.value = { clientName: client.name, lines: publicLines(o.lines, r), units: r.totals.units, shippingCents: r.totals.shippingCents, ...(o.pricing.shippingLater ? { shippingLater: true } : {}), totalCents: r.totals.grandCents, issuedAt: now, expiresAt, test: client.test, status: 'open' }
     snapshot.send = { clientId: client.id, clientName: client.name, to: client.offerEmails, tokenHash: hash, tokenHint: token.slice(0, 6), sentAt: now, expiresAt, totalCents: r.totals.grandCents, shippingCents: r.totals.shippingCents, units: r.totals.units, test: client.test, gmailMessageId: null, outcome: 'pending' }
     return { ...o, status: 'sent', sends: [...(o.sends ?? []), snapshot.send], updatedAt: now, audit: log(o, now, `Sending to ${client.name}`) }
   })

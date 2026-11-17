@@ -40,6 +40,11 @@ export interface OfferPricing {
   ackLow: boolean
   /** What the client is charged for shipping (Mobile One's shipping x the client's multiplier unless changed), in cents. 0 when there is none. */
   shippingCents?: number
+  /**
+   * Priced without any shipping: it is added after the client accepts (when Mobile One's invoice or the label cost is known).
+   * Absent on an offer priced before this existed, which keeps the old behaviour (shipping inside the price).
+   */
+  shippingLater?: true
   pricedAt: string
 }
 
@@ -106,7 +111,7 @@ export interface ReplyStep {
 }
 export interface DraftStep {
   /** working = being raised right now; blocked = a rule or setting needs the owner (no automatic retry). */
-  state: 'pending' | 'working' | 'done' | 'failed' | 'blocked'
+  state: 'pending' | 'working' | 'done' | 'failed' | 'blocked' | 'waiting'
   reason?: string
   attempts: number
   at?: string
@@ -193,6 +198,20 @@ export interface Fulfilment {
   bill?: BillMatch
   imei?: ImeiPack
   auto?: AutoStep
+  /** The shipping charged to the client on an order priced with `shippingLater`. Absent until it is known; the draft invoice waits for it. */
+  shipping?: OrderShipping
+  /** When the owner was last reminded that the shipping is still missing. */
+  shippingRemindedAt?: string
+}
+
+export interface OrderShipping {
+  /** What the client is charged, in cents (0 when there is no shipping). */
+  cents: number
+  /** Mobile One's own shipping behind it, when the client is charged a multiple of it. */
+  mobileOneCents?: number
+  /** email = Mobile One's offer email stated it; manual = typed by the owner; none = the owner confirmed there is none. */
+  source: 'email' | 'manual' | 'none'
+  at: string
 }
 
 export interface Offer {

@@ -8,6 +8,7 @@ import { approveReply, retryFulfilment } from '@/lib/offers/fulfil'
 import { fulfilDeps, fulfilThenAuto, invoiceDeps } from '@/lib/offers/fulfil-server'
 import { holdAuto, resumeAuto, scheduleAuto } from '@/lib/offers/auto-invoice'
 import { archiveTestOffers } from '@/lib/offers/test-archive'
+import { setOrderShipping } from '@/lib/offers/shipping'
 import { approveInvoice, confirmBill, fileInvoice, recheckDraft, sendInvoice } from '@/lib/offers/invoice-flow'
 import { attachImeiFiles, clearImeiFiles, findImeiFiles, sendImeiFollowUp } from '@/lib/offers/imei'
 import { applyAnswer } from '@/lib/offers/resolve'
@@ -46,6 +47,12 @@ export async function PUT(req: Request) {
       : await confirmBill(e.id, e.billId, d)
     // Re-checking can clear what blocked an automatic invoice (an address added, the right Xero organisation chosen).
     if (e.action === 'draft_recheck' && r.ok) await scheduleAuto(e.id, d).catch(() => {})
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'shipping_set') {
+    const r = await setOrderShipping(e.id, fulfilDeps(store), { cents: e.cents, none: e.none })
+    // The draft exists now: start the automatic invoice (10 minutes, with Hold) if the client is automatic.
+    if (r.ok) await scheduleAuto(e.id, invoiceDeps(store)).catch(() => {})
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
   if (e.action === 'archive_test' || e.action === 'archive_all_tests') {

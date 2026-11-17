@@ -23,6 +23,8 @@ export interface PricingInput {
   shippingCents?: number | null
   /** Mobile One's shipping, from the offer itself (never from the browser's say-so on the server). */
   mobileShipping?: { cents: number | null; none: boolean }
+  /** Priced without shipping: it is added after the client accepts. Never an error that it is unknown. */
+  shippingLater?: boolean
 }
 
 /** The pricing input for an offer that is already priced: its saved price plus its saved shipping. */
@@ -33,6 +35,7 @@ export const pricingInputOf = (o: Pick<Offer, 'pricing' | 'shipping'>): PricingI
   ackLow: o.pricing?.ackLow ?? false,
   shippingCents: o.pricing?.shippingCents ?? null,
   mobileShipping: { cents: o.shipping?.mobileOneCents ?? null, none: o.shipping?.source === 'none' },
+  shippingLater: o.pricing?.shippingLater === true,
 })
 
 const MAX_SHIPPING_CENTS = 10_000_000
@@ -52,8 +55,10 @@ export interface ShippingResult {
  * Shipping for one client. Never defaults to zero: with no Mobile One figure (and no "no shipping"
  * confirmation) there is no answer, only an error asking for one.
  */
-export function shippingFor(client: Client, input: Pick<PricingInput, 'shippingCents' | 'mobileShipping'>): ShippingResult {
+export function shippingFor(client: Client, input: Pick<PricingInput, 'shippingCents' | 'mobileShipping' | 'shippingLater'>): ShippingResult {
   const multiplier = multiplierOf(client)
+  // Offers go out without shipping: it is worked out after acceptance, so nothing is missing here.
+  if (input.shippingLater) return { multiplier, none: false, mobileOneCents: null, defaultClientCents: null, clientCents: 0, error: null }
   const m = input.mobileShipping
   const base = { multiplier, none: false }
   if (m?.none) return { ...base, none: true, mobileOneCents: 0, defaultClientCents: 0, clientCents: 0, error: null }
@@ -164,6 +169,7 @@ export const toPricing = (input: PricingInput, client: Client, now: string): Off
   overrides: client.margin.type === 'fixed' && client.margin.locked ? {} : { ...input.overrides },
   ackLow: input.ackLow === true,
   shippingCents: shippingFor(client, input).clientCents ?? 0,
+  ...(input.shippingLater ? { shippingLater: true as const } : {}),
   pricedAt: now,
 })
 

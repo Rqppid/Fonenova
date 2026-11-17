@@ -107,10 +107,11 @@ describe('the review screen and the saved figure', () => {
     expect(html).toContain('value="120.00"')
     expect(html).toContain('Read from the email: &quot;Shipping: 120&quot;')
   })
-  it('says plainly when there is none, and asks for one', () => {
+  it('the review says shipping is optional (offers go out without it)', () => {
     const html = render(offer())
-    expect(html).toContain('data-testid="shipping-needed"')
-    expect(html).toContain('never assumed to be zero')
+    expect(html).toContain('data-testid="shipping-optional"')
+    expect(html).not.toContain('data-testid="shipping-needed"')
+    expect(html).toContain('added on the invoice')
   })
   it('saving changes it (marking it as entered by hand), clears the price, and "no shipping" is explicit', () => {
     const o = offer({ shipping: { mobileOneCents: 12_000, source: 'email', sourceText: 'Shipping: 120' }, pricing: { ...base, pricedAt: '' } })
@@ -133,14 +134,15 @@ describe('the review screen and the saved figure', () => {
     expect(ok({ cents: 99_999_999, none: false })).toMatchObject({ ok: false })
     expect(checkEdit({ action: 'save', id: 'of_s1', lines: [{ model: 'x', qty: 1, unitCostCents: 100 }] })).toMatchObject({ ok: true }) // untouched
   })
-  it('the price panel shows Mobile One x multiplier = the default, lets it be changed, and refuses without a figure', () => {
+  it('the price panel no longer asks for shipping: it says it is added after acceptance', () => {
     const priced = (o: Offer) => renderToString(h(PricePanel, { offer: { ...o, pricing: { ...base, pricedAt: '' } }, clients: seedClients() })).replace(/<!-- -->/g, '')
-    const withShip = priced(offer({ shipping: { mobileOneCents: 12_000, source: 'email', sourceText: null } }))
-    expect(withShip).toContain('Mobile One charges €120.00 × 2')
-    expect(withShip).toContain('€240.00')
-    expect(withShip).toContain('aria-label="Client shipping"')
-    expect(withShip).toContain('data-testid="price-grand"')
-    expect(priced(offer())).toContain('data-testid="shipping-missing"')
+    for (const o of [offer({ shipping: { mobileOneCents: 12_000, source: 'email', sourceText: null } }), offer()]) {
+      const html = priced(o)
+      expect(html).toContain('data-testid="shipping-later-note"')
+      expect(html).not.toContain('aria-label="Client shipping"')
+      expect(html).not.toContain('data-testid="shipping-missing"')
+      expect(html).toContain('data-testid="price-grand"')
+    }
   })
 })
 

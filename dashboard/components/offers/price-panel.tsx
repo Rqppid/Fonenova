@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ruleText, type Client } from '@/lib/offers/clients'
+import { multiplierOf, ruleText, shippingBasisOf, type Client } from '@/lib/offers/clients'
 import { MIN_MARGIN_CENTS, priceOffer } from '@/lib/offers/pricing'
 import type { Offer } from '@/lib/offers/types'
 import { parseEuro } from '@/lib/deal'
@@ -24,8 +24,6 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
   const [margin, setMargin] = useState(saved?.marginCents ? (saved.marginCents / 100).toFixed(2) : '')
   const [over, setOver] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(saved?.overrides ?? {}).map(([k, v]) => [k, (v / 100).toFixed(2)])))
   const [ack, setAck] = useState(saved?.ackLow ?? false)
-  // Blank = Mobile One's shipping x this client's multiplier. A figure typed here replaces it.
-  const [ship, setShip] = useState(saved?.shippingCents && offer.shipping?.mobileOneCents && saved.shippingCents !== Math.round(offer.shipping.mobileOneCents * (clients.find((c) => c.id === saved.clientId)?.shippingMultiplier ?? 2)) ? (saved.shippingCents / 100).toFixed(2) : '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const client = clients.find((c) => c.id === clientId) ?? null
@@ -37,8 +35,9 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
     marginCents: client?.margin.type === 'manual' ? cents(margin) : null,
     overrides: Object.fromEntries(Object.entries(over).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, cents(v) ?? 0])),
     ackLow: ack,
-    shippingCents: ship.trim() === '' ? null : cents(ship),
-    mobileShipping: { cents: offer.shipping?.mobileOneCents ?? null, none: offer.shipping?.source === 'none' },
+    shippingCents: null,
+    mobileShipping: { cents: null, none: false },
+    shippingLater: true,
   }
   const result = client ? priceOffer(offer.lines, client, input) : null
 
@@ -61,7 +60,7 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
 
       <label className="block text-[13px]">
         <span className="mb-1 block font-medium text-ink-2">Client (one per offer)</span>
-        <select value={clientId} onChange={(e) => { setClientId(e.target.value); setMargin(''); setOver({}); setAck(false); setShip('') }} className="h-9 w-full max-w-sm rounded-md border border-line bg-surface px-2 text-[13px]">
+        <select value={clientId} onChange={(e) => { setClientId(e.target.value); setMargin(''); setOver({}); setAck(false) }} className="h-9 w-full max-w-sm rounded-md border border-line bg-surface px-2 text-[13px]">
           <option value="">Choose a client…</option>
           {(offer.testOnly ? clients.filter((c) => c.test) : clients).map((c) => <option key={c.id} value={c.id}>{c.name}{c.test ? ' (test)' : ''}</option>)}
         </select>
@@ -121,20 +120,7 @@ export function PricePanel({ offer, clients }: { offer: Offer; clients: Client[]
           {result && (
             <div className="space-y-1.5 rounded-md bg-subtle p-3 text-[13px]" data-testid="shipping-box">
               <p className="font-medium text-ink">Shipping</p>
-              {result.shipping.none ? (
-                <p className="text-ink-2">No shipping on this offer (you confirmed it on the review).</p>
-              ) : result.shipping.mobileOneCents === null ? (
-                <p className="text-warn" data-testid="shipping-missing">Mobile One&apos;s shipping is not on this offer yet. Enter it in the review above (Shipping) before it can be priced or sent.</p>
-              ) : (
-                <>
-                  <p className="text-ink-2">Mobile One charges {eur(result.shipping.mobileOneCents)} × {result.shipping.multiplier} (this client&apos;s multiplier) = <strong className="text-ink">{eur(result.shipping.defaultClientCents ?? 0)}</strong>.</p>
-                  <label className="block">
-                    <span className="mb-1 block font-medium text-ink-2">Shipping charged to the client, € (leave empty for {eur(result.shipping.defaultClientCents ?? 0)})</span>
-                    <input aria-label="Client shipping" inputMode="decimal" value={ship} onChange={(e) => setShip(e.target.value)} placeholder={((result.shipping.defaultClientCents ?? 0) / 100).toFixed(2)} className="h-9 w-40 rounded-md border border-line bg-surface px-2 text-right text-[13px]" />
-                  </label>
-                  <p className="text-[12.5px] text-ink-2">Shipping margin {eur(result.totals.shippingProfitCents)}. The same figure goes on the offer email, the accept page and the Xero draft as its own line.</p>
-                </>
-              )}
+              <p className="text-ink-2" data-testid="shipping-later-note">The offer goes out without shipping and says it is added to the invoice. Once the client accepts, you enter the shipping ({client && shippingBasisOf(client) === 'own_dhl' ? 'our own DHL cost, no mark-up' : `Mobile One's, charged × ${multiplierOf(client!)}`}) and the draft invoice is made with it.</p>
             </div>
           )}
           {result && result.errors.length > 0 && (margin.trim() !== '' || client.margin.type === 'fixed') && (

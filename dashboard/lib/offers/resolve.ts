@@ -43,7 +43,15 @@ async function update(store: Store, hash: string, fn: (o: Offer, s: OfferSend) =
   })
 }
 
-export interface Figures { lines: PublicLine[]; shippingCents: number; grandCents: number; itemsCents: number }
+export interface Figures {
+  lines: PublicLine[]
+  /** What the client is charged for shipping so far (0 until it is known, on an order priced with shipping added later). */
+  shippingCents: number
+  grandCents: number
+  itemsCents: number
+  /** Priced without shipping, and the shipping has not been entered yet: no invoice can be made. */
+  shippingPending: boolean
+}
 
 /**
  * What the client saw, worked out again from the locked offer: the items at their sale prices, the
@@ -61,7 +69,11 @@ export async function figuresOrWhy(store: Store, o: Offer): Promise<{ figures: F
     if (!client) return { figures: null, why: 'The client this offer was priced for no longer exists.' }
     const r = priceOffer(o.lines, client, pricingInputOf(o))
     if (!r.ok) return { figures: null, why: r.errors[0] ?? 'The offer could not be priced again from its saved settings.' }
-    return { figures: { lines: publicLines(o.lines, r), shippingCents: r.totals.shippingCents, grandCents: r.totals.grandCents, itemsCents: r.totals.saleCents }, why: null }
+    // An order priced with shipping added later takes it from the order itself once it is known.
+    const later = o.pricing.shippingLater === true
+    const entered = later ? (o.fulfilment?.shipping?.cents ?? null) : null
+    const shippingCents = later ? (entered ?? 0) : r.totals.shippingCents
+    return { figures: { lines: publicLines(o.lines, r), shippingCents, grandCents: r.totals.saleCents + shippingCents, itemsCents: r.totals.saleCents, shippingPending: later && entered === null }, why: null }
   } catch {
     return { figures: null, why: 'The offer could not be priced again from its saved settings.' }
   }

@@ -41,6 +41,7 @@ export default async function OfferPage({ params }: { params: Promise<{ token: s
       lines: offer.lines,
       units: offer.units,
       shippingCents: offer.shippingCents ?? 0,
+      shippingLater: offer.shippingLater === true,
       totalCents: offer.totalCents,
       expiresAt: offer.expiresAt,
       test: offer.test,

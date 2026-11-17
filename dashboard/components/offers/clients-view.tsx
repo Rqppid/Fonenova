@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
-import { autoInvoiceOf, FOLDERS, ruleText, type Client, type Folder } from '@/lib/offers/clients'
+import { autoInvoiceOf, FOLDERS, ruleText, shippingBasisOf, type Client, type Folder, type ShippingBasis } from '@/lib/offers/clients'
 import { cn } from '@/lib/utils'
 
 const list = (v: string) => v.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)
@@ -64,7 +64,7 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2 className="text-[15px] font-semibold text-ink">{c.name || 'New client'}{c.test && <span className="ml-2 rounded bg-subtle px-1.5 py-0.5 text-[11.5px] font-medium text-ink-2">test</span>}</h2>
-                <p className="text-[12.5px] text-ink-2">{ruleText(c)} · {!c.termsConfirmed ? <span className="text-warn">payment terms not chosen yet</span> : c.terms === 'upfront' ? 'pays upfront' : `${c.terms.days} days`} · shipping × {x.mult || 2}</p>
+                <p className="text-[12.5px] text-ink-2">{ruleText(c)} · {!c.termsConfirmed ? <span className="text-warn">payment terms not chosen yet</span> : c.terms === 'upfront' ? 'pays upfront' : `${c.terms.days} days`} · {shippingBasisOf(c) === 'own_dhl' ? 'shipping at our DHL cost' : `shipping × ${x.mult || 2}`}</p>
               </div>
               <button type="button" disabled={(usedBy[c.id] ?? 0) > 0} title={(usedBy[c.id] ?? 0) > 0 ? 'An offer is priced for this client' : 'Remove client'} aria-label={`Remove ${c.name || 'client'}`} onClick={() => { setRows(rows.filter((r) => r.id !== c.id)); setSaved(false) }} className="rounded p-1.5 text-ink-3 hover:bg-subtle hover:text-loss disabled:opacity-30"><Trash2 className="h-4 w-4" aria-hidden /></button>
             </div>
@@ -103,6 +103,12 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
                   </select>
                   {c.termsConfirmed && c.terms !== 'upfront' && c.terms.days !== 7 && c.terms.days !== 14 && <input aria-label="Payment days" inputMode="numeric" className={cn(input, 'w-24 text-right')} value={x.days} onChange={(e) => t(c.id, 'days', e.target.value)} />}
                 </div>
+              </label>
+              <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Shipping is charged as</span>
+                <select aria-label="Shipping is charged as" className={input} value={shippingBasisOf(c)} onChange={(e) => patch(c.id, { shippingBasis: e.target.value as ShippingBasis })}>
+                  <option value="mobile_one">Mobile One&apos;s shipping × multiplier</option>
+                  <option value="own_dhl">Our own DHL cost, no mark-up</option>
+                </select>
               </label>
               <label className="text-[13px]"><span className="mb-1 block font-medium text-ink-2">Shipping multiplier (Mobile One&apos;s shipping × this)</span>
                 <input aria-label="Shipping multiplier" inputMode="decimal" className={cn(input, 'w-28 text-right')} value={x.mult} onChange={(e) => t(c.id, 'mult', e.target.value)} placeholder="2" />

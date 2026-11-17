@@ -238,7 +238,8 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
       </div>
 
       <div className="space-y-1.5 rounded-md border border-line p-3 text-[13px]" data-testid="shipping-review">
-        <p className="font-medium text-ink">Mobile One&apos;s shipping (for the whole offer)</p>
+        <p className="font-medium text-ink">Mobile One&apos;s shipping (optional)</p>
+        <p className="text-[12.5px] text-ink-2" data-testid="shipping-optional">Mobile One&apos;s offer usually does not state shipping. That is fine: the offer goes out without it and the shipping is added on the invoice after the client accepts. Fill this in only if the email does state it.</p>
         {editable ? (
           <>
             <div className="flex flex-wrap items-center gap-3">
@@ -252,8 +253,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         )}
         {offer.shipping?.source === 'email' && offer.shipping.sourceText && <p className="text-[12.5px] text-ink-2" data-testid="shipping-source">Read from the email: &quot;{offer.shipping.sourceText}&quot;</p>}
         {offer.shipping?.source === 'manual' && <p className="text-[12.5px] text-ink-2">Entered by you.</p>}
-        {!noShip && shipCents === null && !shipBad && <p className="text-warn" data-testid="shipping-needed">The email did not state a shipping amount. Enter it (or confirm there is none) before this offer can be priced and sent. It is never assumed to be zero.</p>}
-        {!noShip && shipCents !== null && <p className="text-[12.5px] text-ink-2">The client is charged this × their multiplier (2 unless set otherwise on the client). You can change that figure when you price the offer.</p>}
+        {!noShip && shipCents !== null && <p className="text-[12.5px] text-ink-2">Used after acceptance for clients charged on Mobile One&apos;s shipping (× their multiplier). The offer itself does not show it.</p>}
       </div>
       {error && <p role="alert" className="rounded-md border border-loss/30 bg-loss-soft px-3 py-2 text-[13px] text-loss">Not saved: {error}</p>}
       <div className="flex flex-wrap gap-2">

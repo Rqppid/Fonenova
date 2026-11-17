@@ -95,7 +95,7 @@ async function ready(d: InvoiceDeps, offerId: string): Promise<Ready> {
 export interface BillCandidate { id: string; number: string; supplier: string; date: string | null; totalCents: number; diffCents: number }
 
 /** What the order cost: the items at Mobile One's prices plus Mobile One's shipping. */
-export const expectedCostCents = (o: Pick<Offer, 'lines' | 'shipping'>) => o.lines.reduce((n, l) => n + l.qty * l.unitCostCents, 0) + (o.shipping?.mobileOneCents ?? 0)
+export const expectedCostCents = (o: Pick<Offer, 'lines' | 'shipping'> & { fulfilment?: { shipping?: { mobileOneCents?: number } } }) => o.lines.reduce((n, l) => n + l.qty * l.unitCostCents, 0) + (o.fulfilment?.shipping?.mobileOneCents ?? o.shipping?.mobileOneCents ?? 0)
 
 /** Mobile One bills that are not paired yet and come to about what the order cost (within 1%, at least €1). Pure. */
 export function suggestBills(o: Pick<Offer, 'lines' | 'shipping'>, bills: readonly XeroInvoice[], pairs: readonly XeroPair[]): BillCandidate[] {

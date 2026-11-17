@@ -21,6 +21,8 @@ export interface Client {
   termsConfirmed?: boolean
   /** Client shipping = Mobile One's shipping x this. Default 2; editable per client. */
   shippingMultiplier?: number
+  /** How shipping is charged: a multiple of Mobile One's shipping, or our own DHL cost typed per order. Default: see shippingBasisOf. */
+  shippingBasis?: ShippingBasis
   /** Skip the manual approval step. Always false until the approve step exists. */
   autoApprove: false
   /**
@@ -77,8 +79,19 @@ function emails(v: unknown, label: string, who: string): Checked<string[]> {
 const AUTO_BY_DEFAULT = new Set(['c_wave', 'c_eutelecoms'])
 export const autoInvoiceOf = (c: Pick<Client, 'id' | 'test' | 'autoInvoice'>): boolean => c.autoInvoice ?? (c.test || AUTO_BY_DEFAULT.has(c.id))
 
+/**
+ * How a client is charged for shipping:
+ * - mobile_one: Mobile One's shipping (from their invoice) times the client's multiplier (Wave: 2).
+ * - own_dhl: the cost of our own DHL label to them, typed per order, no mark-up (EU Telecoms' contract).
+ */
+export type ShippingBasis = 'mobile_one' | 'own_dhl'
+export const shippingBasisOf = (c: Pick<Client, 'id' | 'shippingBasis'>): ShippingBasis => c.shippingBasis ?? (c.id === 'c_eutelecoms' ? 'own_dhl' : 'mobile_one')
+
 export const DEFAULT_SHIPPING_MULTIPLIER = 2
 export const multiplierOf = (c: Pick<Client, 'shippingMultiplier'>) => c.shippingMultiplier ?? DEFAULT_SHIPPING_MULTIPLIER
+
+/** What the client is charged for a typed figure: Mobile One's shipping times the multiplier, or our own DHL cost as typed (no mark-up). In cents. */
+export const chargeFor = (c: Pick<Client, 'id' | 'shippingBasis' | 'shippingMultiplier'>, typedCents: number): number => (shippingBasisOf(c) === 'own_dhl' ? typedCents : Math.round(typedCents * multiplierOf(c)))
 
 /**
  * `previous` is the saved list: a client that is new, or that was a test client, must have its payment
@@ -119,6 +132,7 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     else return { ok: false, error: `${who}: payment terms are a number of days (0 to 180) or upfront` }
     const mult = b.shippingMultiplier === undefined || b.shippingMultiplier === null || b.shippingMultiplier === '' ? DEFAULT_SHIPPING_MULTIPLIER : b.shippingMultiplier
     if (typeof mult !== 'number' || !Number.isFinite(mult) || mult < 0.5 || mult > 10 || Math.round(mult * 100) !== mult * 100) return { ok: false, error: `${who}: the shipping multiplier must be between 0.5 and 10 (for example 2)` }
+    if (b.shippingBasis !== undefined && b.shippingBasis !== 'mobile_one' && b.shippingBasis !== 'own_dhl') return { ok: false, error: `${who}: shipping is charged as Mobile One's shipping times a number, or our own DHL cost` }
     const termsConfirmed = b.termsConfirmed === true
     const was = previous.find((c) => c.id === id)
     if (b.test !== true && !termsConfirmed && (!was || was.test)) return { ok: false, error: `${who}: choose the payment terms (for example 7 or 14 days) before this client can be a real client` }
@@ -128,7 +142,7 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     if (b.autoInvoice !== undefined && typeof b.autoInvoice !== 'boolean') return { ok: false, error: `${who}: automatic invoicing must be on or off` }
     // Automatic invoicing for a real client needs everything an invoice needs, so it cannot be switched on half set up.
     if (b.autoInvoice === true && b.test !== true && (!(termsConfirmed || (was && !was.test && was.termsConfirmed)) || contact === null || invoice.value.length === 0)) return { ok: false, error: `${who}: automatic invoicing needs the payment terms confirmed, a Xero ContactID and at least one invoice email` }
-    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, ...(typeof b.autoInvoice === 'boolean' ? { autoInvoice: b.autoInvoice } : {}), folder, test: b.test === true })
+    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, ...(b.shippingBasis === 'mobile_one' || b.shippingBasis === 'own_dhl' ? { shippingBasis: b.shippingBasis } : {}), autoApprove: false, ...(typeof b.autoInvoice === 'boolean' ? { autoInvoice: b.autoInvoice } : {}), folder, test: b.test === true })
   }
   return { ok: true, value: out }
 }
