@@ -5,7 +5,7 @@ import { InvoiceSteps } from '@/components/offers/invoice-steps'
 import { gmailThreadIdFrom, parseGmailFiles, parseGmailThread, type ThreadMessage } from '@/lib/gmail'
 import type { XeroApi, XeroInvoiceDetail } from '@/lib/offers/draft'
 import { seedClients } from '@/lib/offers/clients'
-import { attachImeiFiles, candidatesIn, clearImeiFiles, findImeiFiles, kindOf, sendImeiFollowUp } from '@/lib/offers/imei'
+import { attachImeiFiles, candidatesIn, clearImeiFiles, findImeiFiles, imeiLine, kindOf, sendImeiFollowUp } from '@/lib/offers/imei'
 import { sendInvoice, type InvoiceDeps } from '@/lib/offers/invoice-flow'
 import type { Fulfilment, Offer } from '@/lib/offers/types'
 import type { Store, StoreKey } from '@/lib/store'
@@ -32,7 +32,7 @@ const MO = 'Mobile One Trade <bv@mobileone.info>'
 const threadFixture = (): ThreadMessage[] => [
   msg('aaaaaaaaaaaaaaa1', MO, ['INBOX'], [{ name: 'Invoice 2026050050.pdf', mime: 'application/pdf' }], 1),
   msg('aaaaaaaaaaaaaaa2', 'FoneNova <info@fonenova.com>', ['SENT'], [{ name: 'our-reply.pdf' }], 2),
-  msg('aaaaaaaaaaaaaaa3', MO, ['INBOX'], [{ name: 'IMEI sheet.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 52_000 }, { name: 'logo.png', mime: 'image/png' }, { name: 'DHL label.pdf', mime: 'application/pdf', size: 31_000 }], 3),
+  msg('aaaaaaaaaaaaaaa3', MO, ['INBOX'], [{ name: 'IMEI sheet.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 52_000 }, { name: 'logo.png', mime: 'image/png' }, { name: 'IMEI sheet 2.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 31_000 }], 3),
 ]
 
 function offer(test = false, threadId = THREAD): Offer {
@@ -78,13 +78,46 @@ describe('reading Gmail threads', () => {
   })
   it('offers files other people sent: not our own messages, not pictures, newest first', () => {
     const names = candidatesIn(threadFixture()).map((c) => c.filename)
-    expect(names).toEqual(['IMEI sheet.xlsx', 'DHL label.pdf', 'Invoice 2026050050.pdf'])
+    expect(names).toEqual(['IMEI sheet.xlsx', 'IMEI sheet 2.xlsx', 'Invoice 2026050050.pdf'])
   })
   it('knows a spreadsheet is the IMEI list and a DHL pdf is the label', () => {
     expect(kindOf('IMEI sheet.xlsx', '')).toBe('imei')
     expect(kindOf('stock.csv', '')).toBe('imei')
     expect(kindOf('DHL label.pdf', 'application/pdf')).toBe('label')
     expect(kindOf('Invoice 2026050050.pdf', 'application/pdf')).toBe('other')
+  })
+})
+
+describe('only IMEI lists, never a label or an invoice', () => {
+  const withLabel = (): ThreadMessage[] => [
+    msg('aaaaaaaaaaaaaaa1', MO, ['INBOX'], [{ name: 'Invoice 2026050050.pdf', mime: 'application/pdf' }, { name: 'DHL Label_2026050047.pdf', mime: 'application/pdf', size: 66_000 }], 1),
+    msg('aaaaaaaaaaaaaaa3', MO, ['INBOX'], [{ name: 'IMEI_2026050047.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 12_000 }], 3),
+  ]
+  it('the finder lists the IMEI list and leaves the DHL label and the invoice out', async () => {
+    const t = setup(offer(), { thread: withLabel() })
+    const r = await findImeiFiles('of_i1', t.d)
+    expect(r.candidates!.map((c) => c.filename)).toEqual(['IMEI_2026050047.xlsx'])
+    expect(r.message).toContain('1 IMEI list found')
+  })
+  it('says there is no IMEI list when the thread only has a label and an invoice', async () => {
+    const t = setup(offer(), { thread: withLabel().slice(0, 1) })
+    const r = await findImeiFiles('of_i1', t.d)
+    expect(r.candidates).toEqual([])
+    expect(r.message).toContain('No IMEI list in that thread yet')
+  })
+  it('even if a label is asked for directly, it is refused and nothing is saved', async () => {
+    const t = setup(offer(), { thread: withLabel() })
+    const label = pick(t.thread, 'DHL Label_2026050047.pdf')
+    expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [label] })).toMatchObject({ ok: false, message: expect.stringContaining('Only an IMEI list can be sent') })
+    expect(t.get().fulfilment!.imei).toBeUndefined()
+    const mixed = await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI_2026050047.xlsx'), label] })
+    expect(mixed).toMatchObject({ ok: false })
+    expect(t.get().fulfilment!.imei).toBeUndefined()
+  })
+  it('the email says IMEI list, never shipping details', () => {
+    const f = (filename: string) => ({ messageId: 'a', partId: '0.1', filename, mime: 'x', size: 1, kind: 'imei' as const })
+    expect(imeiLine({ threadId: 't', chosenAt: 'x', files: [f('IMEI.xlsx')] })).toBe('The IMEI list is attached: IMEI.xlsx.')
+    expect(imeiLine({ threadId: 't', chosenAt: 'x', files: [f('a.xlsx'), f('b.xlsx')] })).toBe('The IMEI lists are attached: a.xlsx, b.xlsx.')
   })
 })
 
@@ -123,11 +156,11 @@ describe('finding and choosing the files', () => {
     const sheet = pick(t.thread, 'IMEI sheet.xlsx')
     expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [{ messageId: sheet.messageId, partId: '9.9' }] })).toMatchObject({ ok: false, message: expect.stringContaining('not in that thread') })
     expect(await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [] })).toMatchObject({ ok: false })
-    const r = await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [sheet, pick(t.thread, 'DHL label.pdf'), sheet] })
+    const r = await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [sheet, pick(t.thread, 'IMEI sheet 2.xlsx'), sheet] })
     expect(r).toMatchObject({ ok: true, message: expect.stringContaining('attached to the invoice email') })
     const saved = t.get().fulfilment!.imei!
     expect(saved.threadId).toBe(THREAD)
-    expect(saved.files.map((f) => `${f.filename}:${f.kind}`)).toEqual(['IMEI sheet.xlsx:imei', 'DHL label.pdf:label'])
+    expect(saved.files.map((f) => `${f.filename}:${f.kind}`)).toEqual(['IMEI sheet.xlsx:imei', 'IMEI sheet 2.xlsx:imei'])
     expect(JSON.stringify(t.get())).not.toContain('PK')
   })
   it('refuses files that are too big together, and the choice can be removed until it is sent', async () => {
@@ -167,10 +200,10 @@ describe('Gmail hands out a different attachment handle on every read', () => {
 describe('the files go with the invoice when they are chosen first', () => {
   it('attaches them to the invoice email next to the PDF, says so in the text, and marks them sent', async () => {
     const t = setup(offer())
-    await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI sheet.xlsx'), pick(t.thread, 'DHL label.pdf')] })
+    await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI sheet.xlsx'), pick(t.thread, 'IMEI sheet 2.xlsx')] })
     expect(await sendInvoice('of_i1', t.d, { confirm: true, via: 'gmail' })).toMatchObject({ ok: true })
     expect(t.mails).toHaveLength(1)
-    expect(t.mails[0].attachments.map((a) => a.filename)).toEqual(['Invoice-2026051.pdf', 'IMEI sheet.xlsx', 'DHL label.pdf'])
+    expect(t.mails[0].attachments.map((a) => a.filename)).toEqual(['Invoice-2026051.pdf', 'IMEI sheet.xlsx', 'IMEI sheet 2.xlsx'])
     expect(t.mails[0].attachments[1].bytes).toEqual(SHEET)
     expect(t.mails[0].text).toContain('IMEI list')
     const f = t.get().fulfilment!
@@ -201,7 +234,7 @@ describe('the files follow in the same thread when they come later', () => {
   async function sentWithoutFiles(o = offer(), opts: Parameters<typeof setup>[1] = {}) {
     const t = setup(o, opts)
     await sendInvoice('of_i1', t.d, { confirm: true, via: 'gmail' })
-    await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI sheet.xlsx'), pick(t.thread, 'DHL label.pdf')] })
+    await attachImeiFiles('of_i1', t.d, { thread: THREAD, picks: [pick(t.thread, 'IMEI sheet.xlsx'), pick(t.thread, 'IMEI sheet 2.xlsx')] })
     return t
   }
   it('replies in the thread of the invoice email, to the client, with the files attached', async () => {
@@ -210,8 +243,9 @@ describe('the files follow in the same thread when they come later', () => {
     expect(t.mails).toHaveLength(2)
     const m = t.mails[1]
     expect(m).toMatchObject({ to: 'accounts@wave.example', subject: 'Re: Invoice 2026051 from FoneNova Ltd', threadId: 'newthread0000001', inReplyTo: '<invoice-msg@mail.gmail.com>' })
-    expect(m.attachments.map((a) => a.filename)).toEqual(['IMEI sheet.xlsx', 'DHL label.pdf'])
-    expect(m.text).toContain('IMEI list and shipping details for invoice 2026051')
+    expect(m.attachments.map((a) => a.filename)).toEqual(['IMEI sheet.xlsx', 'IMEI sheet 2.xlsx'])
+    expect(m.text).toContain('Please find the IMEI list for invoice 2026051')
+    expect(m.text).not.toContain('shipping')
     expect(t.get().fulfilment!.imei!.sent).toMatchObject({ state: 'done', how: 'follow_up' })
   })
   it('three clicks at once send once', async () => {

@@ -3,15 +3,13 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { ukTime } from '@/lib/format-uk'
-import { splitCandidates } from '@/lib/offers/imei-pure'
 import type { ImeiCandidate } from '@/lib/offers/imei'
 import type { Offer } from '@/lib/offers/types'
 
 const kb = (n: number) => (n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
-const KIND: Record<ImeiCandidate['kind'], string> = { imei: 'IMEI list', label: 'label / shipping', other: 'other' }
 
 /**
- * The IMEI list and shipping label from Mobile One, for the client. Pick the files from Mobile One's email;
+ * The IMEI list from Mobile One, for the client. Pick the files from Mobile One's email;
  * if the invoice has not gone yet they are attached to it, and if it has, one click sends them as a reply
  * in the same email thread. Nothing is sent without the tick.
  */
@@ -25,7 +23,6 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
   const [found, setFound] = useState<{ threadId: string; candidates: ImeiCandidate[] } | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [tick, setTick] = useState(false)
-  const [showOther, setShowOther] = useState(false)
   if (!f) return null
   const imei = f.imei
   const invoiceSent = f.send?.state === 'done'
@@ -52,7 +49,6 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
     if (!out?.threadId) return
     const candidates = out.candidates ?? []
     setFound({ threadId: out.threadId, candidates })
-    setShowOther(false)
     // Spreadsheets are the IMEI lists; ticked to start with, the rest left for you to choose.
     setPicked(new Set(candidates.filter((c) => c.kind === 'imei').slice(0, 1).map(key)))
   }
@@ -71,7 +67,7 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
       ) : imei ? (
         <>
           <ul className="list-disc pl-5" data-testid="imei-files">
-            {imei.files.map((x) => <li key={key(x)}>{x.filename} · {KIND[x.kind]} · {kb(x.size)}</li>)}
+            {imei.files.map((x) => <li key={key(x)}>{x.filename} · {kb(x.size)}</li>)}
           </ul>
           {imei.sent?.state === 'failed' && <p className="text-warn" data-testid="imei-reason">{imei.sent.reason}</p>}
           {!invoiceSent ? (
@@ -95,26 +91,21 @@ export function ImeiBlock({ offer, sendHint }: { offer: Offer; sendHint: string 
             <Button size="sm" variant="outline" disabled={busy !== null} onClick={look} data-testid="imei-find-button">{busy === 'imei_find' ? 'Looking…' : imei ? 'Choose other files' : "Find them in Mobile One's email"}</Button>
             <input value={thread} onChange={(e) => setThread(e.target.value)} placeholder="Or paste a Gmail link" aria-label="Gmail link of the email with the files" className="min-w-[14rem] flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[13px]" data-testid="imei-thread-input" />
           </div>
-          {found && (() => {
-            const { imei: lists, other } = splitCandidates(found.candidates)
-            const shown = showOther ? [...lists, ...other] : lists
-            return (
+          {found && (
             <div className="space-y-1" data-testid="imei-candidates">
-              {shown.length === 0 ? <p>No IMEI list in that thread yet.{other.length > 0 && !showOther ? ' There are other files.' : ''}</p> : (
+              {found.candidates.length === 0 ? <p>No IMEI list in that thread yet.</p> : (
                 <>
-                  {shown.map((c) => (
+                  {found.candidates.map((c) => (
                     <label key={key(c)} className="flex items-start gap-2" data-testid="imei-candidate">
                       <input type="checkbox" checked={picked.has(key(c))} onChange={(e) => { const n = new Set(picked); if (e.target.checked) n.add(key(c)); else n.delete(key(c)); setPicked(n) }} />
-                      <span>{c.filename} · {KIND[c.kind]} · {kb(c.size)} · {ukTime(c.receivedAt)}<span className="block text-[12.5px] text-ink-3">{c.subject}</span></span>
+                      <span>{c.filename} · {kb(c.size)} · {ukTime(c.receivedAt)}<span className="block text-[12.5px] text-ink-3">{c.subject}</span></span>
                     </label>
                   ))}
                   <Button size="sm" variant="primary" disabled={busy !== null || picked.size === 0} onClick={keep} data-testid="imei-keep-button">{busy === 'imei_attach' ? 'Saving…' : 'Use the ticked files'}</Button>
                 </>
               )}
-              {other.length > 0 && !showOther && <button type="button" className="block text-[13px] font-medium text-accent hover:underline" onClick={() => setShowOther(true)} data-testid="imei-show-other">Show other files ({other.length})</button>}
             </div>
-            )
-          })()}
+          )}
         </div>
       )}
       {notice && <p role="status" className="text-gain" data-testid="imei-notice">{notice}</p>}

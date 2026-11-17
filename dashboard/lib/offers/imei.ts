@@ -1,5 +1,5 @@
 /**
- * IMEI sheets and shipping labels from Mobile One, passed on to the client.
+ * IMEI lists from Mobile One, passed on to the client. Only the IMEI list: never Mobile One's DHL label, invoice or any other file.
  *
  * Mobile One sends them by email, sometimes with the invoice and sometimes days later, so this works
  * both ways:
@@ -73,9 +73,10 @@ async function locate(d: ImeiDeps, offerId: string, pasted?: string): Promise<Lo
 export async function findImeiFiles(offerId: string, d: ImeiDeps, opts: { thread?: string } = {}): Promise<ActionResult & { threadId?: string; candidates?: ImeiCandidate[] }> {
   const r = await locate(d, offerId, opts.thread)
   if (!r.ok) return r
-  const candidates = candidatesIn(r.messages)
-  if (candidates.length === 0) return { ok: true, message: 'No files from Mobile One in that thread yet. Try again when the email arrives, or paste the link of another email.', threadId: r.threadId, candidates }
-  return { ok: true, message: `${candidates.length} file${candidates.length === 1 ? '' : 's'} found in the thread.`, threadId: r.threadId, candidates }
+  // Only the IMEI lists are ever offered: a label, an invoice or any other file in the thread is not sent to a client.
+  const candidates = candidatesIn(r.messages).filter((c) => c.kind === 'imei')
+  if (candidates.length === 0) return { ok: true, message: 'No IMEI list in that thread yet. Try again when the email arrives, or paste the link of another email.', threadId: r.threadId, candidates }
+  return { ok: true, message: `${candidates.length} IMEI list${candidates.length === 1 ? '' : 's'} found in the thread.`, threadId: r.threadId, candidates }
 }
 
 /** Step 2: keep the ones picked. The server looks the thread up again, so only a real file of that thread can be saved. */
@@ -91,6 +92,7 @@ export async function attachImeiFiles(offerId: string, d: ImeiDeps, input: { thr
   for (const p of input.picks) {
     const c = found.find((x) => x.messageId === p.messageId && x.partId === p.partId)
     if (!c) return { ok: false, message: 'One of the files is not in that thread any more. Look again.' }
+    if (c.kind !== 'imei') return { ok: false, message: 'Only an IMEI list can be sent to a client. That file is not one.' }
     if (files.some((x) => x.messageId === c.messageId && x.partId === c.partId)) continue
     files.push({ messageId: c.messageId, partId: c.partId, filename: c.filename, mime: c.mime, size: c.size, kind: c.kind })
   }
@@ -134,13 +136,8 @@ export async function fetchImeiAttachments(d: ImeiDeps, pack: ImeiPack): Promise
   return out
 }
 
-/** What the invoice email says about the files it carries. Only IMEI lists unless the owner ticked something else on purpose. */
-export const imeiLine = (pack: ImeiPack) => {
-  const onlyLists = pack.files.every((f) => f.kind === 'imei')
-  const what = onlyLists ? (pack.files.length === 1 ? 'The IMEI list is' : 'The IMEI lists are') : 'The IMEI list and the other files are'
-  return `${what} attached: ${pack.files.map((f) => f.filename).join(', ')}.`
-}
-
+/** What the invoice email says about the files it carries: always IMEI lists. */
+export const imeiLine = (pack: ImeiPack) => `${pack.files.length === 1 ? 'The IMEI list is' : 'The IMEI lists are'} attached: ${pack.files.map((f) => f.filename).join(', ')}.`
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -198,8 +195,8 @@ export async function sendImeiFollowUp(offerId: string, d: ImeiDeps, opts: { con
     const inReplyTo = threadId && f.send.messageId ? ((await d.gmailThread.rfcId(f.send.messageId).catch(() => null)) ?? undefined) : undefined
     const base = `${f.test ? '[TEST] ' : ''}Invoice ${number} from FoneNova Ltd`
     const subject = threadId ? `Re: ${base}` : `${f.test ? '[TEST] ' : ''}IMEI list for invoice ${number}`
-    const text = `Hello ${client.name},\n\nPlease find the IMEI list${pack.files.some((x) => x.kind === 'label') ? ' and shipping details' : ''} for invoice ${number} attached.\n${pack.files.map((x) => `- ${x.filename}`).join('\n')}\n\nKind regards,\nFoneNova Ltd`
-    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#111"><p>Hello ${esc(client.name)},</p><p>Please find the IMEI list${pack.files.some((x) => x.kind === 'label') ? ' and shipping details' : ''} for invoice <strong>${esc(number)}</strong> attached.</p><ul>${pack.files.map((x) => `<li>${esc(x.filename)}</li>`).join('')}</ul><p>Kind regards,<br>FoneNova Ltd</p></div>`
+    const text = `Hello ${client.name},\n\nPlease find the IMEI list for invoice ${number} attached.\n${pack.files.map((x) => `- ${x.filename}`).join('\n')}\n\nKind regards,\nFoneNova Ltd`
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#111"><p>Hello ${esc(client.name)},</p><p>Please find the IMEI list for invoice <strong>${esc(number)}</strong> attached.</p><ul>${pack.files.map((x) => `<li>${esc(x.filename)}</li>`).join('')}</ul><p>Kind regards,<br>FoneNova Ltd</p></div>`
     await d.mail({ to: wanted.join(', '), subject, text, html, attachments, ...(threadId ? { threadId } : {}), ...(inReplyTo ? { inReplyTo } : {}) })
     const done = nowOf(d).toISOString()
     const where = `${wanted.join(', ')}${threadId ? ' (same thread as the invoice)' : ''}`
