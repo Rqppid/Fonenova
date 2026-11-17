@@ -24,7 +24,7 @@ describe('finished test offers are tucked away', () => {
   const NOW = '2026-11-15T10:00:00.000Z'
   const view = (offers: Offer[], selected: string | null = null) => renderToString(h(OffersView, { offers, status: null, setup: { gmail: null, telegram: false, schedule: true }, selected, clients: seedClients(), send: { allowReal: false, storeProblem: null, gmailProblem: null } })).replace(/<!-- -->/g, '')
   const open = makeTestOffer(NOW)
-  const done = { ...makeTestOffer(NOW), id: 'of_test_done', status: 'accepted' as const }
+  const done = { ...makeTestOffer(NOW), id: 'of_test_done', status: 'declined' as const }
   const real: Offer = { ...makeTestOffer(NOW), id: 'of_real1', testOnly: undefined, status: 'accepted', source: { ...open.source, subject: 'Real offer from Mobile One' } }
   it('hides an answered test offer by default but keeps open test offers and real ones', () => {
     const html = view([open, done, real])

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Inbox, Plus, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { AutoRefresh } from '@/components/dashboard/auto-refresh'
 import { PricePanel } from '@/components/offers/price-panel'
 import { SendPanel, type SendSetup } from '@/components/offers/send-panel'
 import type { Client } from '@/lib/offers/clients'
@@ -58,19 +59,23 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
   }
   // Finished test offers (answered, expired or dismissed) are tucked away so they do not crowd the real ones.
   const [showTests, setShowTests] = useState(false)
-  const finishedTest = (o: Offer) => o.testOnly === true && ['accepted', 'declined', 'expired', 'dismissed'].includes(o.status)
+  // An accepted test offer stays until its invoice has been emailed: there are still steps to do on it.
+  const finishedTest = (o: Offer) => o.testOnly === true && (['declined', 'expired', 'dismissed'].includes(o.status) || (o.status === 'accepted' && o.fulfilment?.send?.state === 'done'))
   const hiddenTests = offers.filter(finishedTest).length
-  const list = offers.filter((o) => (showDismissed || o.status !== 'dismissed') && (showTests || o.id === selected || !finishedTest(o)))
+  const list = offers.filter((o) => (showDismissed || o.status !== 'dismissed') && (showTests || o.id === selected || o.id === openId || !finishedTest(o)))
+  // Something is waiting on a client or on the invoice steps: look again every few seconds so it shows up without a refresh.
+  const awaiting = offers.some((o) => o.status === 'sent' || (o.status === 'accepted' && (!o.fulfilment || ['pending', 'working'].includes(o.fulfilment.draft.state) || ['pending', 'sending'].includes(o.fulfilment.reply.state) || o.fulfilment.auto?.state === 'scheduled' || o.fulfilment.auto?.state === 'running')))
   const open = offers.find((o) => o.id === openId) ?? null
   const waiting = offers.filter((o) => o.status === 'needs_review').length
   return (
     <div className="space-y-4">
+      <AutoRefresh everyMs={awaiting ? 6000 : 60_000} />
       {liveTarget && <p role="alert" className="rounded-lg bg-loss px-4 py-2.5 text-[14px] font-semibold text-white" data-testid="live-banner">LIVE: drafts go to {liveTarget}</p>}
       <SetupNotes setup={setup} status={status} />
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <section aria-labelledby="offers-list" className="rounded-lg border border-line bg-surface">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h2 id="offers-list" className="text-[15px] font-semibold text-ink">Offers <span className="ml-1 font-normal text-ink-2">{waiting ? `${waiting} to review` : 'all reviewed'}</span></h2>
+            <h2 id="offers-list" className="text-[15px] font-semibold text-ink">Offers <span className="ml-1 font-normal text-ink-2">{waiting ? `${waiting} to review` : 'all reviewed'}</span>{awaiting && <span className="ml-2 text-[12px] font-normal text-ink-3" data-testid="live-updating">updating automatically</span>}</h2>
             <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2"><input type="checkbox" checked={showDismissed} onChange={(e) => setShowDismissed(e.target.checked)} />Show not offers</label>
           </div>
           {hiddenTests > 0 || showTests ? (

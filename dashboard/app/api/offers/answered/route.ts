@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { bearerOk } from '@/lib/bearer'
 import { envValue, webhookProblem } from '@/lib/offers/env-check'
-import { fulfilDeps } from '@/lib/offers/fulfil-server'
-import { fulfilOffer } from '@/lib/offers/fulfil'
+import { fulfilThenAuto } from '@/lib/offers/fulfil-server'
 import { ownerEmail } from '@/lib/offers/owner-email'
 import { applyAnswer } from '@/lib/offers/resolve'
 import { notify } from '@/lib/offers/telegram'
@@ -27,7 +26,7 @@ export async function POST(req: Request) {
   if (!body || typeof body.hash !== 'string' || !/^[0-9a-f]{64}$/.test(body.hash)) return json({ error: 'invalid' }, 400)
   try {
     const store = getStore()
-    const r = await applyAnswer(body.hash, { store, notify, email: ownerEmail(store), dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''), fulfil: (id) => fulfilOffer(id, fulfilDeps(store)) })
+    const r = await applyAnswer(body.hash, { store, notify, email: ownerEmail(store), dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''), fulfil: (id) => fulfilThenAuto(id, store) })
     return json({ ok: true, changed: r.changed })
   } catch {
     return json({ error: 'unavailable' }, 503) // the 5-minute check will pick the answer up

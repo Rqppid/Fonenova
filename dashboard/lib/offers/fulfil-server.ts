@@ -11,6 +11,8 @@ import { xeroWriteApi, xeroWriteConfig } from '../xero/write'
 import type { Ledger } from '../types'
 import type { FulfilDeps } from './fulfil'
 import { notify } from './telegram'
+import { fulfilOffer } from './fulfil'
+import { scheduleAuto } from './auto-invoice'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -47,6 +49,7 @@ export function invoiceDeps(store: Store): InvoiceDeps {
   return {
     ...fulfilDeps(store),
     allowApprove: process.env.OFFERS_ALLOW_APPROVE === 'true',
+    autoOff: process.env.OFFERS_AUTO_INVOICE?.trim().toLowerCase() === 'off',
     mail: gmailConfig() ? async (m) => { const c = gmailConfig()!; const sent = await sendGmail(c, { to: m.to, subject: m.subject, text: m.text, html: m.html, fromName: 'FoneNova', attachments: m.attachments, ...(m.threadId ? { threadId: m.threadId } : {}), ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}) }, store); return { id: sent.id, threadId: sent.threadId } } : undefined,
     gmailThread: gmailConfig() ? { messages: (t) => getThreadMessages(gmailConfig()!, t, store), file: (m, a) => getAttachmentBytes(gmailConfig()!, m, a, store), rfcId: async (id) => (await getMessage(gmailConfig()!, id, store)).rfcMessageId } : undefined,
     filing: { dirs: filingDirs(), upload: (path, bytes) => fileInvoicePdf(path, bytes, store) },
@@ -56,4 +59,13 @@ export function invoiceDeps(store: Store): InvoiceDeps {
       await saveXeroPairs([...pairs.filter((x) => x.orderId !== p.orderId), p])
     },
   }
+}
+
+/**
+ * What happens when a client's acceptance arrives: reserve the order, reply to Mobile One, raise the Xero draft,
+ * then schedule the automatic invoice (if the client is automatic). Used wherever an answer is applied.
+ */
+export async function fulfilThenAuto(id: string, store: Store): Promise<void> {
+  await fulfilOffer(id, fulfilDeps(store))
+  await scheduleAuto(id, invoiceDeps(store)).catch(() => {})
 }

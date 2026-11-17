@@ -23,6 +23,11 @@ export interface Client {
   shippingMultiplier?: number
   /** Skip the manual approval step. Always false until the approve step exists. */
   autoApprove: false
+  /**
+   * Approve the invoice in Xero and email it to the client by itself, 10 minutes after the client accepts
+   * (with a Hold button). Absent on a client saved before this existed: see autoInvoiceOf.
+   */
+  autoInvoice?: boolean
   folder: Folder
   /** A test client: a real inbox of the owner's, never a real customer. */
   test: boolean
@@ -67,6 +72,10 @@ function emails(v: unknown, label: string, who: string): Checked<string[]> {
   }
   return { ok: true, value: out }
 }
+
+/** Clients invoiced automatically unless the owner says otherwise: the two agreed clients, and the test client (so the journey can be tried). */
+const AUTO_BY_DEFAULT = new Set(['c_wave', 'c_eutelecoms'])
+export const autoInvoiceOf = (c: Pick<Client, 'id' | 'test' | 'autoInvoice'>): boolean => c.autoInvoice ?? (c.test || AUTO_BY_DEFAULT.has(c.id))
 
 export const DEFAULT_SHIPPING_MULTIPLIER = 2
 export const multiplierOf = (c: Pick<Client, 'shippingMultiplier'>) => c.shippingMultiplier ?? DEFAULT_SHIPPING_MULTIPLIER
@@ -116,7 +125,10 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     if (b.autoApprove === true) return { ok: false, error: `${who}: auto-approve arrives with the approve step; it stays off for now` }
     const folder = FOLDERS.find((f) => f.key === b.folder)?.key
     if (!folder) return { ok: false, error: `${who}: choose a folder` }
-    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, folder, test: b.test === true })
+    if (b.autoInvoice !== undefined && typeof b.autoInvoice !== 'boolean') return { ok: false, error: `${who}: automatic invoicing must be on or off` }
+    // Automatic invoicing for a real client needs everything an invoice needs, so it cannot be switched on half set up.
+    if (b.autoInvoice === true && b.test !== true && (!(termsConfirmed || (was && !was.test && was.termsConfirmed)) || contact === null || invoice.value.length === 0)) return { ok: false, error: `${who}: automatic invoicing needs the payment terms confirmed, a Xero ContactID and at least one invoice email` }
+    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, ...(typeof b.autoInvoice === 'boolean' ? { autoInvoice: b.autoInvoice } : {}), folder, test: b.test === true })
   }
   return { ok: true, value: out }
 }

@@ -4,8 +4,9 @@ import { makeTestOffer, openTestOffers, TEST_OFFER_CAP } from '@/lib/offers/test
 import { liveXeroReady } from '@/lib/xero/live-gate'
 import { gmailConfig, gmailConnected, sendGmail } from '@/lib/gmail'
 import { loadClients } from '@/lib/offers/store'
-import { approveReply, fulfilOffer, retryFulfilment } from '@/lib/offers/fulfil'
-import { fulfilDeps, invoiceDeps } from '@/lib/offers/fulfil-server'
+import { approveReply, retryFulfilment } from '@/lib/offers/fulfil'
+import { fulfilDeps, fulfilThenAuto, invoiceDeps } from '@/lib/offers/fulfil-server'
+import { holdAuto, resumeAuto, scheduleAuto } from '@/lib/offers/auto-invoice'
 import { approveInvoice, confirmBill, fileInvoice, recheckDraft, sendInvoice } from '@/lib/offers/invoice-flow'
 import { attachImeiFiles, clearImeiFiles, findImeiFiles, sendImeiFollowUp } from '@/lib/offers/imei'
 import { applyAnswer } from '@/lib/offers/resolve'
@@ -44,6 +45,10 @@ export async function PUT(req: Request) {
       : await confirmBill(e.id, e.billId, d)
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
+  if (e.action === 'auto_hold' || e.action === 'auto_resume') {
+    const r = e.action === 'auto_hold' ? await holdAuto(e.id, fulfilDeps(store)) : await resumeAuto(e.id, fulfilDeps(store))
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
   if (e.action === 'imei_find' || e.action === 'imei_attach' || e.action === 'imei_clear' || e.action === 'imei_send') {
     const d = invoiceDeps(store)
     if (e.action === 'imei_find') {
@@ -62,13 +67,14 @@ export async function PUT(req: Request) {
       return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
     }
     await retryFulfilment(e.id, d)
+    await scheduleAuto(e.id, invoiceDeps(store)).catch(() => {})
     return json({ ok: true })
   }
   if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock') {
     const dashboardUrl = process.env.AUTH_URL?.replace(/\/$/, '')
     const r =
       e.action === 'unlock' ? await unlockOffer(e.id, { store })
-      : e.action === 'withdraw' ? await withdrawOffer(e.id, { store }, (hash) => applyAnswer(hash, { store, notify, email: ownerEmail(store), dashboardUrl, fulfil: (id) => fulfilOffer(id, fulfilDeps(store)) }))
+      : e.action === 'withdraw' ? await withdrawOffer(e.id, { store }, (hash) => applyAnswer(hash, { store, notify, email: ownerEmail(store), dashboardUrl, fulfil: (id) => fulfilThenAuto(id, store) }))
       : await (async () => {
           const c = gmailConfig()
           if (!c) return { ok: false as const, error: 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).' }

@@ -102,6 +102,28 @@ export function InvoiceSteps({ offer, setup, bills = [] }: { offer: Offer; setup
           </Row>
         )}
 
+        {f.auto && (
+          <Row tone={f.auto.state === 'done' ? 'ok' : f.auto.state === 'failed' || f.auto.state === 'blocked' ? 'bad' : 'wait'} title="Automatic invoicing" testId="step-auto">
+            {f.auto.state === 'scheduled' ? (
+              <>
+                <p data-testid="auto-scheduled">Will be approved in Xero and emailed to the client at {ukTime(f.auto.dueAt)}, by itself. Check the draft in Xero before then.</p>
+                <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => act('auto_hold')} data-testid="auto-hold-button">{busy === 'auto_hold' ? 'Holding…' : 'Hold: do not send automatically'}</Button>
+              </>
+            ) : f.auto.state === 'running' ? (
+              <p>Being approved and emailed now.</p>
+            ) : f.auto.state === 'done' ? (
+              <p>Approved and emailed automatically {f.auto.at ? ukTime(f.auto.at) : ''}.</p>
+            ) : f.auto.state === 'held' ? (
+              <>
+                <p data-testid="auto-held">Held by you. Nothing is sent automatically; approve and send it yourself below, or let it run again.</p>
+                <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => act('auto_resume')} data-testid="auto-resume-button">{busy === 'auto_resume' ? 'Releasing…' : 'Release the hold (sends in 10 minutes)'}</Button>
+              </>
+            ) : (
+              <p className="text-warn" data-testid="auto-reason">{f.auto.state === 'failed' ? 'The automatic invoice stopped: ' : 'It will not go out by itself: '}{f.auto.reason}</p>
+            )}
+          </Row>
+        )}
+
         <Row tone={approve?.state === 'done' ? 'ok' : approve?.state === 'blocked' || approve?.state === 'failed' ? 'bad' : 'wait'} title="Approve the invoice in Xero" testId="step-approve">
           {approve?.state === 'done' ? (
             <p>Approved {approve.at ? ukTime(approve.at) : ''}.{approve.detail ? ` ${approve.detail}` : ''}</p>

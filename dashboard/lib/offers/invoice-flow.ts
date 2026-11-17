@@ -34,6 +34,8 @@ export interface GmailThreadApi {
 export interface InvoiceDeps extends FulfilDeps {
   /** OFFERS_ALLOW_APPROVE: approving in a live organisation. Its own switch. */
   allowApprove: boolean
+  /** OFFERS_AUTO_INVOICE=off: nothing is approved or emailed automatically (the manual buttons still work). */
+  autoOff?: boolean
   /** Sends one email from info@fonenova.com (the connected Gmail), with attachments. Null when Gmail is not set up. */
   mail?: (m: { to: string; subject: string; text: string; html: string; attachments: { filename: string; mime: string; bytes: Uint8Array }[]; threadId?: string; inReplyTo?: string }) => Promise<{ id: string; threadId?: string }>
   /** Reads Mobile One's threads for IMEI sheets and labels, and fetches them. Null when Gmail is not connected. */

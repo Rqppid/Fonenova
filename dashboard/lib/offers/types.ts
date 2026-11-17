@@ -166,6 +166,18 @@ export interface ImeiPack {
   sent?: { state: 'working' | 'done' | 'failed'; at: string; how?: 'with_invoice' | 'follow_up'; to?: string; reason?: string }
 }
 
+/**
+ * The invoice that goes out by itself after a client accepts. scheduled = will run at dueAt; running = being done now;
+ * done = approved and emailed; held = you pressed Hold; blocked = a check failed before it ran (re-checked every 5 minutes);
+ * failed = a step refused or ended unclear while running (never retried by itself).
+ */
+export interface AutoStep {
+  state: 'scheduled' | 'running' | 'done' | 'held' | 'blocked' | 'failed'
+  dueAt: string
+  at?: string
+  reason?: string
+}
+
 export interface Fulfilment {
   /** FN-ORD-### for a real offer, TEST-### for a test one. */
   orderRef: string
@@ -180,6 +192,7 @@ export interface Fulfilment {
   filing?: InvoiceStep
   bill?: BillMatch
   imei?: ImeiPack
+  auto?: AutoStep
 }
 
 export interface Offer {
