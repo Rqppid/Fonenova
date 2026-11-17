@@ -28,8 +28,6 @@ export interface Client {
    * (with a Hold button). Absent on a client saved before this existed: see autoInvoiceOf.
    */
   autoInvoice?: boolean
-  /** A line of text printed under the items on every invoice for this client (for example the margin scheme wording its contract asks for). Never changes a total. */
-  invoiceNote?: string
   folder: Folder
   /** A test client: a real inbox of the owner's, never a real customer. */
   test: boolean
@@ -127,18 +125,10 @@ export function checkClients(body: unknown, previous: readonly Client[] = []): C
     if (b.autoApprove === true) return { ok: false, error: `${who}: auto-approve arrives with the approve step; it stays off for now` }
     const folder = FOLDERS.find((f) => f.key === b.folder)?.key
     if (!folder) return { ok: false, error: `${who}: choose a folder` }
-    let invoiceNote: string | undefined
-    if (b.invoiceNote !== undefined && b.invoiceNote !== null) {
-      if (typeof b.invoiceNote !== 'string') return { ok: false, error: `${who}: the invoice line must be text` }
-      const n = b.invoiceNote.trim()
-      if (n.length > 200) return { ok: false, error: `${who}: the invoice line is up to 200 characters` }
-      if (/[\u0000-\u001f\u007f]/.test(n)) return { ok: false, error: `${who}: the invoice line must be one line of plain text` }
-      if (n) invoiceNote = n
-    }
     if (b.autoInvoice !== undefined && typeof b.autoInvoice !== 'boolean') return { ok: false, error: `${who}: automatic invoicing must be on or off` }
     // Automatic invoicing for a real client needs everything an invoice needs, so it cannot be switched on half set up.
     if (b.autoInvoice === true && b.test !== true && (!(termsConfirmed || (was && !was.test && was.termsConfirmed)) || contact === null || invoice.value.length === 0)) return { ok: false, error: `${who}: automatic invoicing needs the payment terms confirmed, a Xero ContactID and at least one invoice email` }
-    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, ...(typeof b.autoInvoice === 'boolean' ? { autoInvoice: b.autoInvoice } : {}), ...(invoiceNote ? { invoiceNote } : {}), folder, test: b.test === true })
+    out.push({ id, name, xeroContactId: contact, ...(liveRaw ? { liveTestContactId: liveRaw } : {}), offerEmails: offer.value, invoiceEmails: invoice.value, margin, terms, termsConfirmed, shippingMultiplier: mult, autoApprove: false, ...(typeof b.autoInvoice === 'boolean' ? { autoInvoice: b.autoInvoice } : {}), folder, test: b.test === true })
   }
   return { ok: true, value: out }
 }

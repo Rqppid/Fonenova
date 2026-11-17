@@ -6,7 +6,7 @@
  */
 import 'server-only'
 import crypto from 'node:crypto'
-import { DuplicateInvoiceNumber, isPricedLine, parseXeroValidation, XeroRejected, type DraftBody, type XeroApi, type XeroInvoiceRef } from '../offers/draft'
+import { DuplicateInvoiceNumber, parseXeroValidation, XeroRejected, type DraftBody, type XeroApi, type XeroInvoiceRef } from '../offers/draft'
 import { getJson, getStore, storeWritable, type Store } from '../store'
 import type { DraftDebug } from '../offers/types'
 
@@ -114,7 +114,7 @@ export function describeRequest(body: DraftBody): Record<string, unknown> {
     Type: body.Type, Status: body.Status, InvoiceNumber: body.InvoiceNumber, Reference: body.Reference,
     CurrencyCode: body.CurrencyCode, CurrencyRate: 'not sent', LineAmountTypes: body.LineAmountTypes,
     Date: body.Date, DueDate: body.DueDate, ContactID: short(body.Contact.ContactID), BrandingThemeID: body.BrandingThemeID ? short(body.BrandingThemeID) : 'not sent',
-    LineItems: body.LineItems.map((l) => (isPricedLine(l) ? { Quantity: l.Quantity, UnitAmount: l.UnitAmount, AccountCode: l.AccountCode, TaxType: l.TaxType } : { Note: 'text only line' })),
+    LineItems: body.LineItems.map((l) => ({ Quantity: l.Quantity, UnitAmount: l.UnitAmount, AccountCode: l.AccountCode, TaxType: l.TaxType })),
   }
 }
 
@@ -327,7 +327,7 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
           return null
         }
       }
-      const line = body.LineItems.find(isPricedLine)
+      const line = body.LineItems[0]
       // The tenant header and the organisation Xero says that tenant is must be the same one.
       const tid = await tenant()
       const org = await organisationRaw().catch(() => null)
