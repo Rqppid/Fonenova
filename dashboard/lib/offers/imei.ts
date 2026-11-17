@@ -134,7 +134,13 @@ export async function fetchImeiAttachments(d: ImeiDeps, pack: ImeiPack): Promise
   return out
 }
 
-export const imeiLine = (pack: ImeiPack) => `${pack.files.length === 1 ? 'The IMEI list' : 'The IMEI list and shipping details'} ${pack.files.length === 1 ? 'is' : 'are'} attached: ${pack.files.map((f) => f.filename).join(', ')}.`
+/** What the invoice email says about the files it carries. Only IMEI lists unless the owner ticked something else on purpose. */
+export const imeiLine = (pack: ImeiPack) => {
+  const onlyLists = pack.files.every((f) => f.kind === 'imei')
+  const what = onlyLists ? (pack.files.length === 1 ? 'The IMEI list is' : 'The IMEI lists are') : 'The IMEI list and the other files are'
+  return `${what} attached: ${pack.files.map((f) => f.filename).join(', ')}.`
+}
+
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
