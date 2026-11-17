@@ -220,6 +220,8 @@ export interface Offer {
   shipping?: OfferShipping
   /** Set when a client accepts; absent on offers accepted before this existed. */
   fulfilment?: Fulfilment
+  /** A test offer the owner cleared away. It stays on file (its order reference is never reused) but is out of the list. Never set on a real offer. */
+  archived?: boolean
   createdAt: string
   updatedAt: string
   audit: { at: string; what: string }[]
