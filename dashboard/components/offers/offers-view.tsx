@@ -46,6 +46,7 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
   }, [openId, selected])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
   async function createTest() {
     setCreating(true)
     setCreateError(null)
@@ -57,10 +58,20 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
       router.refresh()
     } else setCreateError(out?.error ?? 'Could not create it. Check your connection and try again.')
   }
-  // Finished test offers (answered, expired or dismissed) are tucked away so they do not crowd the real ones.
+  async function clearTests() {
+    if (!window.confirm('Clear every test offer from the list? Nothing is deleted in Xero, and real offers are never touched. You can show them again with "Show finished test offers".')) return
+    setClearing(true)
+    setCreateError(null)
+    const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'archive_all_tests' }) }).catch(() => null)
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    setClearing(false)
+    if (res?.ok && out?.ok) router.refresh()
+    else setCreateError(out?.error ?? 'Could not clear them. Check your connection and try again.')
+  }
+  // Finished test offers (answered, expired, dismissed or cleared) are tucked away so they do not crowd the real ones.
   const [showTests, setShowTests] = useState(false)
   // An accepted test offer stays until its invoice has been emailed: there are still steps to do on it.
-  const finishedTest = (o: Offer) => o.testOnly === true && (['declined', 'expired', 'dismissed'].includes(o.status) || (o.status === 'accepted' && o.fulfilment?.send?.state === 'done'))
+  const finishedTest = (o: Offer) => o.testOnly === true && (o.archived === true || ['declined', 'expired', 'dismissed'].includes(o.status) || (o.status === 'accepted' && o.fulfilment?.send?.state === 'done'))
   const hiddenTests = offers.filter(finishedTest).length
   const list = offers.filter((o) => (showDismissed || o.status !== 'dismissed') && (showTests || o.id === selected || o.id === openId || !finishedTest(o)))
   // Something is waiting on a client or on the invoice steps: look again every few seconds so it shows up without a refresh.
@@ -84,7 +95,10 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
             </div>
           ) : null}
           <div className="border-b border-line px-4 py-2" data-testid="new-test-offer">
-            <Button size="sm" variant="outline" disabled={creating} onClick={createTest}>{creating ? 'Creating…' : 'New test offer'}</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={creating} onClick={createTest}>{creating ? 'Creating…' : 'New test offer'}</Button>
+              {offers.some((o) => o.testOnly && !o.archived) && <Button size="sm" variant="ghost" disabled={clearing} onClick={clearTests} data-testid="clear-tests-button">{clearing ? 'Clearing…' : `Clear all test offers (${offers.filter((o) => o.testOnly && !o.archived).length})`}</Button>}
+            </div>
             <p className="mt-1 text-[12px] text-ink-3">A made-up offer for the test client, to try pricing, sending, accepting and the Xero draft without a real email.</p>
             {createError && <p role="alert" className="mt-1 text-[12.5px] text-loss">{createError}</p>}
           </div>
@@ -248,6 +262,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         {offer.status === 'needs_review' && <Button size="sm" variant={dirty ? 'outline' : 'primary'} disabled={busy || dirty || !lines.length} title={dirty ? 'Save your changes first' : undefined} onClick={() => put({ action: 'status', id: offer.id, status: 'ready' })}>Mark reviewed</Button>}
         {offer.status === 'ready' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Back to review</Button>}
         {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>}
+        {offer.testOnly && !offer.archived && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'archive_test', id: offer.id })} data-testid="clear-test-button">Remove this test offer from the list</Button>}
         {offer.status === 'dismissed' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Restore</Button>}
       </div>
       {offer.status === 'ready' && <PricePanel key={offer.updatedAt} offer={offer} clients={clients} />}

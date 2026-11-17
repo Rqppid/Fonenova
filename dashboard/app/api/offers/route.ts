@@ -7,6 +7,7 @@ import { loadClients } from '@/lib/offers/store'
 import { approveReply, retryFulfilment } from '@/lib/offers/fulfil'
 import { fulfilDeps, fulfilThenAuto, invoiceDeps } from '@/lib/offers/fulfil-server'
 import { holdAuto, resumeAuto, scheduleAuto } from '@/lib/offers/auto-invoice'
+import { archiveTestOffers } from '@/lib/offers/test-archive'
 import { approveInvoice, confirmBill, fileInvoice, recheckDraft, sendInvoice } from '@/lib/offers/invoice-flow'
 import { attachImeiFiles, clearImeiFiles, findImeiFiles, sendImeiFollowUp } from '@/lib/offers/imei'
 import { applyAnswer } from '@/lib/offers/resolve'
@@ -45,6 +46,10 @@ export async function PUT(req: Request) {
       : await confirmBill(e.id, e.billId, d)
     // Re-checking can clear what blocked an automatic invoice (an address added, the right Xero organisation chosen).
     if (e.action === 'draft_recheck' && r.ok) await scheduleAuto(e.id, d).catch(() => {})
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'archive_test' || e.action === 'archive_all_tests') {
+    const r = await archiveTestOffers(store, e.action === 'archive_test' ? { id: e.id } : 'all')
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
   if (e.action === 'auto_hold' || e.action === 'auto_resume') {
