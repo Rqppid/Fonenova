@@ -43,6 +43,8 @@ export async function PUT(req: Request) {
       : e.action === 'invoice_file' ? await fileInvoice(e.id, d)
       : e.action === 'draft_recheck' ? await recheckDraft(e.id, d)
       : await confirmBill(e.id, e.billId, d)
+    // Re-checking can clear what blocked an automatic invoice (an address added, the right Xero organisation chosen).
+    if (e.action === 'draft_recheck' && r.ok) await scheduleAuto(e.id, d).catch(() => {})
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
   if (e.action === 'auto_hold' || e.action === 'auto_resume') {

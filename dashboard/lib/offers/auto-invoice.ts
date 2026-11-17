@@ -22,13 +22,23 @@ import type { Offer } from './types'
 export const AUTO_DELAY_MS = 10 * 60_000
 const STALE_RUNNING_MS = 10 * 60_000
 
+/**
+ * Only orders that started after automatic invoicing went live are ever handled by it. Without this, the first
+ * run would have invoiced every older accepted offer that still had a draft (it did, in the Demo Company).
+ */
+export const AUTO_FROM = '2026-11-17T18:00:00Z'
+/** The 5-minute pass only looks at orders this recent. */
+const SWEEP_WINDOW_MS = 7 * 24 * 3_600_000
+/** The start of the reason shown when the dashboard points at a different Xero organisation than the draft was made in. */
+export const ORG_MISMATCH = 'Switch the dashboard back to'
+
 const nowOf = (d: FulfilDeps) => d.now ?? new Date()
 const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const link = (d: FulfilDeps, o: Offer) => (d.dashboardUrl ? { label: 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
 const clientOf = async (d: FulfilDeps, o: Offer): Promise<Client | undefined> => ((await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()).find((c) => c.id === o.pricing?.clientId)
 const acceptedTotal = (o: Offer) => (o.sends ?? []).find((s) => s.outcome === 'accepted')?.totalCents ?? null
 
-type Plan = { mode: 'off' } | { mode: 'hold'; why: string } | { mode: 'go' }
+type Plan = { mode: 'off'; why?: string } | { mode: 'hold'; why: string } | { mode: 'go' }
 
 /** Whether this offer should be invoiced automatically right now, and if not, why not. */
 async function plan(o: Offer, d: InvoiceDeps): Promise<Plan> {
@@ -37,6 +47,10 @@ async function plan(o: Offer, d: InvoiceDeps): Promise<Plan> {
   if (!f || o.status !== 'accepted') return { mode: 'off' }
   const client = await clientOf(d, o)
   if (!client || !autoInvoiceOf(client)) return { mode: 'off' }
+  // Older orders were started before this existed: they are left to the owner, never invoiced by surprise.
+  if (!(Date.parse(f.startedAt) >= Date.parse(AUTO_FROM))) return { mode: 'off', why: 'This order started before automatic invoicing existed, so it is left to you.' }
+  // The owner already pressed Approve or Send himself: step aside, never race him.
+  if (f.approve || f.send) return { mode: 'off', why: 'You already started the invoice yourself, so it is not done automatically.' }
   if (f.draft.state !== 'done' || !f.draft.invoiceId) return { mode: 'hold', why: 'There is no draft invoice yet.' }
   if (f.draft.warnings?.some((w) => /address/i.test(w))) return { mode: 'hold', why: `${client.name} has no usable address in Xero. Add one, then press Re-check in Xero.` }
   if (!client.test && !client.termsConfirmed) return { mode: 'hold', why: `${client.name}'s payment terms are not confirmed (Offers, Clients).` }
@@ -45,7 +59,7 @@ async function plan(o: Offer, d: InvoiceDeps): Promise<Plan> {
   if (!api) return { mode: 'hold', why: 'The Xero write connection is not set up.' }
   try {
     const org = await api.organisation()
-    if (org.name !== f.draft.org) return { mode: 'hold', why: `The selected Xero organisation (${org.name}) is not the one this draft was made in (${f.draft.org ?? 'unknown'}).` }
+    if (org.name !== f.draft.org) return { mode: 'hold', why: `${ORG_MISMATCH} ${f.draft.org ?? 'the organisation the draft was made in'} (Settings, Xero draft invoices), then press Re-check in Xero. It points at ${org.name} right now.` }
     if (!org.isDemo && f.test) return { mode: 'hold', why: 'A test invoice is never approved in the live organisation: it stays a draft there. Delete it in Xero.' }
     if (org.isDemo && !f.test) return { mode: 'hold', why: 'A real order is not approved in a demo organisation.' }
   } catch (e) {
@@ -103,7 +117,7 @@ export async function runAuto(offerId: string, d: InvoiceDeps): Promise<ActionRe
 
   // Look again at everything that could have changed in the 10 minutes.
   const p = await plan(claimed, d)
-  if (p.mode === 'off') return stop('blocked', 'Automatic invoicing was switched off.', 'the invoice was not sent automatically.')
+  if (p.mode === 'off') return stop('blocked', p.why ?? 'Automatic invoicing was switched off.', 'the invoice was not sent automatically.')
   if (p.mode === 'hold') return stop('blocked', p.why, 'the invoice was not sent automatically.')
 
   const a = await approveInvoice(offerId, d, { confirm: true })
@@ -146,7 +160,12 @@ export async function sweepAuto(d: InvoiceDeps): Promise<{ scheduled: number; ra
   for (const o of offers) {
     const f = o.fulfilment
     if (!f || o.status !== 'accepted') continue
+    // Only recent orders, so a stale one is never looked at (or sent to Xero about) again and again.
+    if (nowOf(d).getTime() - Date.parse(f.startedAt) > SWEEP_WINDOW_MS) continue
     const a = f.auto
+    // A test offer stuck on "wrong Xero organisation" waits for the owner (Re-check in Xero); a real one is re-checked every pass,
+    // so switching the dashboard back to live lets it go ahead by itself.
+    if (f.test && a?.state === 'blocked' && a.reason?.startsWith(ORG_MISMATCH)) continue
     if (f.draft.state === 'done' && (!a || a.state === 'blocked')) {
       await scheduleAuto(o.id, d)
       if ((await load(d.store, o.id))?.fulfilment?.auto?.state === 'scheduled') out.scheduled++

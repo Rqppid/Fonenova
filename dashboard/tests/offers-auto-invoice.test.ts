@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { InvoiceSteps } from '@/components/offers/invoice-steps'
 import { OffersView } from '@/components/offers/offers-view'
 import type { XeroApi, XeroInvoiceDetail } from '@/lib/offers/draft'
-import { AUTO_DELAY_MS, holdAuto, resumeAuto, runAuto, scheduleAuto, sweepAuto } from '@/lib/offers/auto-invoice'
+import { AUTO_DELAY_MS, AUTO_FROM, holdAuto, ORG_MISMATCH, resumeAuto, runAuto, scheduleAuto, sweepAuto } from '@/lib/offers/auto-invoice'
 import { autoInvoiceOf, checkClients, seedClients, type Client } from '@/lib/offers/clients'
 import type { InvoiceDeps } from '@/lib/offers/invoice-flow'
 import type { Fulfilment, Offer } from '@/lib/offers/types'
@@ -13,7 +13,7 @@ import type { Store, StoreKey } from '@/lib/store'
 vi.mock('server-only', () => ({}))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }))
 
-const NOW = new Date('2026-11-17T10:00:00Z')
+const NOW = new Date('2026-11-18T10:00:00Z')
 const HOURS = (n: number) => new Date(NOW.getTime() - n * 3_600_000).toISOString()
 const MIN = (n: number) => new Date(NOW.getTime() + n * 60_000)
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 1, 2, 3])
@@ -38,10 +38,10 @@ function setup(o: Offer, opts: Opts = {}) {
   store.data.set('offers:clients', seedClients().map((c) => (c.id === 'c_wave' ? { ...c, termsConfirmed: true, invoiceEmails: ['accounts@wave.example'], ...opts.clientPatch } : c.id === 'c_test' ? { ...c, xeroContactId: WAVE, invoiceEmails: ['owner@example.test'], ...opts.clientPatch } : c)))
   const mails: { to: string; subject: string }[] = []
   const pings: string[] = []
-  const calls = { approve: 0 }
+  const calls = { approve: 0, org: 0 }
   const live = { status: 'DRAFT', total: opts.totalCents ?? 481_000 }
   const api: XeroApi = {
-    async organisation() { return { name: isDemo ? 'Demo Company (UK)' : 'Fonenova Ltd', isDemo } },
+    async organisation() { calls.org++; return { name: isDemo ? 'Demo Company (UK)' : 'Fonenova Ltd', isDemo } },
     async invoiceNumbers() { return [] }, async findByReference() { return null }, async createDraft() { throw new Error('n/a') },
     async getInvoice() { return { id: 'inv-1', number: '2026052', status: live.status, reference: 'x', currency: 'EUR', totalCents: live.total, contactId: WAVE, contactEmail: 'accounts@wave.example', hasAddress: true, sentToContact: false } as XeroInvoiceDetail },
     async approveInvoice() { calls.approve++; live.status = 'AUTHORISED' },
@@ -137,6 +137,62 @@ describe('scheduling the automatic invoice', () => {
     const none = setup(offer(), { noXero: true })
     await scheduleAuto('of_a1', none.d)
     expect(none.get().fulfilment!.auto!.state).toBe('blocked')
+  })
+})
+
+describe('which orders automatic invoicing touches', () => {
+  it('never an order that started before automatic invoicing went live (nothing scheduled, nothing sent)', async () => {
+    const old = offer(); old.fulfilment!.startedAt = new Date(Date.parse(AUTO_FROM) - 3_600_000).toISOString()
+    const t = setup(old)
+    await scheduleAuto('of_a1', t.d)
+    expect(t.get().fulfilment!.auto).toBeUndefined()
+    t.state.now = MIN(60)
+    expect(await sweepAuto(t.d)).toEqual({ scheduled: 0, ran: 0 })
+    expect(t.mails).toHaveLength(0)
+    expect(t.pings).toHaveLength(0)
+  })
+  it('a scheduled one is stopped if the owner got there first and approved it himself', async () => {
+    const t = setup(offer())
+    await scheduleAuto('of_a1', t.d)
+    const cur = t.get(); cur.fulfilment!.approve = { state: 'done', at: MIN(3).toISOString() }
+    t.store.data.set('offers', [cur])
+    t.state.now = MIN(11)
+    await sweepAuto(t.d)
+    expect(t.calls.approve).toBe(0)
+    expect(t.mails).toHaveLength(0)
+    expect(t.get().fulfilment!.auto).toMatchObject({ state: 'blocked', reason: expect.stringContaining('already started the invoice yourself') })
+  })
+  it('an order already started by hand is not scheduled at all', async () => {
+    const mine = offer(); mine.fulfilment!.send = { state: 'failed', reason: 'x', at: HOURS(0) }
+    const t = setup(mine)
+    await scheduleAuto('of_a1', t.d)
+    expect(t.get().fulfilment!.auto).toBeUndefined()
+  })
+  it('the 5-minute pass ignores orders older than a week', async () => {
+    const t = setup(offer())
+    t.state.now = new Date(NOW.getTime() + 8 * 24 * 3_600_000)
+    expect(await sweepAuto(t.d)).toEqual({ scheduled: 0, ran: 0 })
+    expect(t.get().fulfilment!.auto).toBeUndefined()
+    expect(t.calls.org).toBe(0)
+  })
+  it('a Demo test left while the dashboard points at live says how to fix it, and is not re-checked every pass; a real order is', async () => {
+    const demoTest = offer(true) // draft made in the Demo Company
+    const dt = setup(demoTest, { isDemo: false })
+    await scheduleAuto('of_a1', dt.d)
+    expect(dt.get().fulfilment!.auto).toMatchObject({ state: 'blocked', reason: expect.stringContaining(`${ORG_MISMATCH} Demo Company (UK)`) })
+    expect(dt.get().fulfilment!.auto!.reason).toContain('Re-check in Xero')
+    const after = dt.calls.org
+    await sweepAuto(dt.d); await sweepAuto(dt.d)
+    expect(dt.calls.org).toBe(after)
+    expect(dt.pings).toHaveLength(1)
+    // A real order pointed at the wrong organisation is re-checked each pass, so switching back lets it go ahead on its own.
+    const real = setup(offer(), { isDemo: true })
+    await scheduleAuto('of_a1', real.d)
+    expect(real.get().fulfilment!.auto!.state).toBe('blocked')
+    const calls = real.calls.org
+    await sweepAuto(real.d)
+    expect(real.calls.org).toBeGreaterThan(calls)
+    expect(real.mails).toHaveLength(0)
   })
 })
 
