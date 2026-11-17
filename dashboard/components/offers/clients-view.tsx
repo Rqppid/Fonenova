@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
-import { FOLDERS, ruleText, type Client, type Folder } from '@/lib/offers/clients'
+import { autoInvoiceOf, FOLDERS, ruleText, type Client, type Folder } from '@/lib/offers/clients'
 import { cn } from '@/lib/utils'
 
 const list = (v: string) => v.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)
@@ -113,7 +113,7 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-ink-2">
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={c.test} onChange={(e) => patch(c.id, { test: e.target.checked })} />Test client (never a real customer)</label>
-              <label className="flex items-center gap-1.5 opacity-60" title="Arrives with the approve step"><input type="checkbox" disabled checked={false} />Approve invoices automatically (not available yet)</label>
+              <label className="flex items-start gap-1.5" data-testid="auto-invoice-switch"><input type="checkbox" checked={autoInvoiceOf(c)} onChange={(e) => patch(c.id, { autoInvoice: e.target.checked })} /><span>Approve and email invoices automatically, 10 minutes after the client accepts{autoInvoiceOf(c) && !c.test ? <span className="block text-[12.5px] text-warn">On: a real invoice goes to {c.name} without you pressing anything. Telegram tells you first and you can press Hold.</span> : null}</span></label>
             </div>
           </section>
         )
