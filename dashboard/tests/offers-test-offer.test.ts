@@ -135,3 +135,9 @@ describe('what the screen shows', () => {
     expect(html).toContain('data-testid="test-badge"')
   })
 })
+
+describe('a new test offer starts with no shipping', () => {
+  it('so the order waits for it, like a real one', () => {
+    expect(makeTestOffer('2026-11-18T10:00:00Z').shipping).toBeUndefined()
+  })
+})

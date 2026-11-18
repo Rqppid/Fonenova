@@ -50,8 +50,6 @@ export function makeTestOffer(now: string, rand: (n: number) => string = (n) => 
     },
     text: 'TEST OFFER, made in Quay Pilot for testing. It is not from Mobile One and can only be priced for and sent to the test client.\n\n' + lines.map((l) => l.sourceText).join('\n'),
     lines,
-    // A sample shipping figure, so the whole journey can be tried: 2x for the client by default.
-    shipping: { mobileOneCents: 12_000, source: 'manual', sourceText: 'TEST: Shipping 120.00' },
     createdAt: now,
     updatedAt: now,
     audit: [{ at: now, what: 'Test offer created (not from Mobile One). It can only be priced for and sent to a test client.' }],
