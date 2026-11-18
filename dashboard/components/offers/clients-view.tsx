@@ -50,7 +50,7 @@ export function ClientsView({ clients, usedBy }: { clients: Client[]; usedBy: Re
 
   function add() {
     const id = `c_${Math.random().toString(36).slice(2, 8).padEnd(6, '0')}`
-    setRows([...rows, { id, name: '', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'other', test: false }])
+    setRows([...rows, { id, name: '', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, shippingBasis: 'mobile_one', autoInvoice: false, autoApprove: false, folder: 'other', test: false }])
     setText({ ...text, [id]: { offer: '', invoice: '', fixed: '', days: '30', mult: '2' } })
     setSaved(false)
   }

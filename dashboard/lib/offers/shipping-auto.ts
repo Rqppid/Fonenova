@@ -8,7 +8,7 @@
  * (shown on the offer, one Telegram message) and left for the owner to type.
  */
 import { getJson } from '../store'
-import { seedClients, shippingBasisOf, type Client } from './clients'
+import { clientsFrom, shippingBasisOf, type Client } from './clients'
 import { load, log, mutate } from './fulfil'
 import type { InvoiceDeps } from './invoice-flow'
 import { setOrderShipping } from './shipping'
@@ -27,7 +27,7 @@ export async function autoShippingFor(offerId: string, d: InvoiceDeps, read: Inv
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment
   if (!offer || !f || offer.status !== 'accepted' || f.test || offer.pricing?.shippingLater !== true || f.draft.state !== 'waiting' || f.shipping) return 'skipped'
-  const client = ((await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()).find((c) => c.id === offer.pricing?.clientId)
+  const client = (clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))).find((c) => c.id === offer.pricing?.clientId)
   if (!client || shippingBasisOf(client) !== 'mobile_one') return 'skipped'
   const threadId = offer.source.threadId
   if (!d.gmailThread || !threadId || /^test-/.test(threadId)) return 'skipped'

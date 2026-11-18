@@ -17,7 +17,7 @@ import { type FulfilDeps, load, log, mutate } from './fulfil'
 import type { ActionResult, InvoiceDeps } from './invoice-flow'
 import type { ImeiFile, ImeiPack, Offer } from './types'
 import { getJson } from '../store'
-import { seedClients, type Client } from './clients'
+import { clientsFrom, type Client } from './clients'
 
 export type ImeiDeps = InvoiceDeps
 
@@ -172,7 +172,7 @@ export async function sendImeiFollowUp(offerId: string, d: ImeiDeps, opts: { con
     if (!d.allowReal) return { ok: false, message: 'Sending to real clients is switched off (OFFERS_ALLOW_REAL_SEND). Nothing was sent.' }
   } else if (!f.test) return { ok: false, message: 'A real order is not sent from a demo organisation.' }
 
-  const client: Client | undefined = ((await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()).find((c) => c.id === offer.pricing?.clientId)
+  const client: Client | undefined = (clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))).find((c) => c.id === offer.pricing?.clientId)
   const wanted = (client?.invoiceEmails ?? []).map((e) => e.trim()).filter(Boolean)
   if (!client || wanted.length === 0) return { ok: false, message: `${client?.name ?? 'The client'} has no invoice email address (Offers, Clients).` }
 

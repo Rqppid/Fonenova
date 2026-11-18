@@ -13,7 +13,7 @@
  */
 import { ukTime } from '../format-uk'
 import { getJson } from '../store'
-import { autoInvoiceOf, seedClients, type Client } from './clients'
+import { autoInvoiceOf, clientsFrom, type Client } from './clients'
 import { load, log, mutate, type FulfilDeps } from './fulfil'
 import { approveInvoice, sendInvoice, type ActionResult, type InvoiceDeps } from './invoice-flow'
 import type { Offer } from './types'
@@ -35,7 +35,7 @@ export const ORG_MISMATCH = 'Switch the dashboard back to'
 const nowOf = (d: FulfilDeps) => d.now ?? new Date()
 const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const link = (d: FulfilDeps, o: Offer) => (d.dashboardUrl ? { label: 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
-const clientOf = async (d: FulfilDeps, o: Offer): Promise<Client | undefined> => ((await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()).find((c) => c.id === o.pricing?.clientId)
+const clientOf = async (d: FulfilDeps, o: Offer): Promise<Client | undefined> => (clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))).find((c) => c.id === o.pricing?.clientId)
 const acceptedTotal = (o: Offer) => (o.sends ?? []).find((s) => s.outcome === 'accepted')?.totalCents ?? null
 
 type Plan = { mode: 'off'; why?: string } | { mode: 'hold'; why: string } | { mode: 'go' }

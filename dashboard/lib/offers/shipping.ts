@@ -9,7 +9,7 @@
  * through the same code as before; the caller then schedules the automatic invoice.
  */
 import { getJson } from '../store'
-import { chargeFor, seedClients, shippingBasisOf, type Client } from './clients'
+import { chargeFor, clientsFrom, shippingBasisOf, type Client } from './clients'
 import { load, log, mutate, retryFulfilment, type FulfilDeps } from './fulfil'
 import type { Offer } from './types'
 
@@ -26,7 +26,7 @@ export async function setOrderShipping(offerId: string, d: FulfilDeps, input: { 
   if (offer.pricing?.shippingLater !== true) return { ok: false, message: 'This offer was priced with its shipping included, so there is nothing to enter.' }
   if (f.draft.state === 'done') return { ok: false, message: 'The draft invoice already exists, so its shipping is not changed from here. Add the shipping line to the draft in Xero by hand.' }
   if (f.draft.state !== 'waiting') return { ok: false, message: f.shipping ? `The shipping is already set (${eur(f.shipping.cents)}).` : 'The draft invoice is not waiting for shipping.' }
-  const client = ((await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()).find((c) => c.id === offer.pricing?.clientId)
+  const client = (clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))).find((c) => c.id === offer.pricing?.clientId)
   if (!client) return { ok: false, message: 'The client this offer was priced for no longer exists.' }
   if (!input.none && (input.cents === null || !Number.isSafeInteger(input.cents) || input.cents < 1 || input.cents > MAX_SHIPPING_CENTS)) return { ok: false, message: 'The shipping must be an amount between €0.01 and €100,000.00.' }
 

@@ -52,9 +52,9 @@ export const ruleText = (c: Client) =>
 /** The first list: Wave and EU Telecoms as agreed, plus an empty test client to fill in. */
 export function seedClients(): Client[] {
   return [
-    { id: 'c_wave', name: 'Wave Phone B.V.', xeroContactId: '1597cc5c-fbed-4817-a4e1-53149bb46d77', offerEmails: ['info@wavephone.nl'], invoiceEmails: ['info@wavephone.nl'], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'wave', test: false },
-    { id: 'c_eutelecoms', name: 'EU Telecoms BL EOOD', xeroContactId: 'a7401e62-a54e-495e-98cd-85f3c6c027b8', offerEmails: ['contact@eutelecoms.com'], invoiceEmails: ['contact@eutelecoms.com'], margin: { type: 'fixed', perUnitCents: 400, locked: true }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'telecom', test: false },
-    { id: 'c_test', name: 'Test client (my own inbox)', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, autoApprove: false, folder: 'other', test: true },
+    { id: 'c_wave', name: 'Wave Phone B.V.', xeroContactId: '1597cc5c-fbed-4817-a4e1-53149bb46d77', offerEmails: ['info@wavephone.nl'], invoiceEmails: ['info@wavephone.nl'], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, shippingBasis: 'mobile_one', autoApprove: false, folder: 'wave', test: false },
+    { id: 'c_eutelecoms', name: 'EU Telecoms BL EOOD', xeroContactId: 'a7401e62-a54e-495e-98cd-85f3c6c027b8', offerEmails: ['contact@eutelecoms.com'], invoiceEmails: ['contact@eutelecoms.com'], margin: { type: 'fixed', perUnitCents: 400, locked: true }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, shippingBasis: 'own_dhl', autoApprove: false, folder: 'telecom', test: false },
+    { id: 'c_test', name: 'Test client (my own inbox)', xeroContactId: null, offerEmails: [], invoiceEmails: [], margin: { type: 'manual' }, terms: { days: 30 }, termsConfirmed: false, shippingMultiplier: 2, shippingBasis: 'mobile_one', autoInvoice: true, autoApprove: false, folder: 'other', test: true },
   ]
 }
 
@@ -75,23 +75,44 @@ function emails(v: unknown, label: string, who: string): Checked<string[]> {
   return { ok: true, value: out }
 }
 
-/** Clients invoiced automatically unless the owner says otherwise: the two agreed clients, and the test client (so the journey can be tried). */
-const AUTO_BY_DEFAULT = new Set(['c_wave', 'c_eutelecoms'])
-export const autoInvoiceOf = (c: Pick<Client, 'id' | 'test' | 'autoInvoice'>): boolean => c.autoInvoice ?? (c.test || AUTO_BY_DEFAULT.has(c.id))
+/** Automatic invoicing is a setting of every client, off until it is switched on. */
+export const autoInvoiceOf = (c: Pick<Client, 'autoInvoice'>): boolean => c.autoInvoice === true
 
 /**
- * How a client is charged for shipping:
- * - mobile_one: Mobile One's shipping (from their invoice) times the client's multiplier (Wave: 2).
- * - own_dhl: the cost of our own DHL label to them, typed per order, no mark-up (EU Telecoms' contract).
+ * How a client is charged for shipping (a setting of every client):
+ * - mobile_one: Mobile One's shipping (from their invoice) times the client's multiplier.
+ * - own_dhl: the cost of our own DHL label to them, typed per order, no mark-up.
  */
 export type ShippingBasis = 'mobile_one' | 'own_dhl'
-export const shippingBasisOf = (c: Pick<Client, 'id' | 'shippingBasis'>): ShippingBasis => c.shippingBasis ?? (c.id === 'c_eutelecoms' ? 'own_dhl' : 'mobile_one')
+export const shippingBasisOf = (c: Pick<Client, 'shippingBasis'>): ShippingBasis => c.shippingBasis ?? 'mobile_one'
+
+/**
+ * Lists saved before these two settings were explicit: fill in what those clients effectively had, once, so nothing
+ * changes for them. This is the ONLY place that knows two clients by id; after it, every client is an ordinary record
+ * and a save from the Clients screen keeps the explicit values. Pure and idempotent.
+ */
+export function backfillClientDefaults(list: readonly Client[]): Client[] {
+  const legacy: Record<string, Pick<Client, 'shippingBasis' | 'autoInvoice'>> = {
+    c_wave: { shippingBasis: 'mobile_one', autoInvoice: true },
+    c_eutelecoms: { shippingBasis: 'own_dhl', autoInvoice: true },
+  }
+  return list.map((c) => {
+    const l = legacy[c.id]
+    // Automatic invoicing needs terms confirmed, a Xero contact and an invoice address (checkClients enforces it on save), so a
+    // legacy client that is not ready yet is simply off until the owner switches it on.
+    const ready = c.test || (c.termsConfirmed && c.xeroContactId !== null && c.invoiceEmails.length > 0)
+    return { ...c, shippingBasis: c.shippingBasis ?? l?.shippingBasis ?? 'mobile_one', autoInvoice: c.autoInvoice ?? ((l?.autoInvoice ?? c.test) && ready) }
+  })
+}
+
+/** The saved clients (or the first-run list), with every setting explicit. Use this everywhere a client list is read. */
+export const clientsFrom = (saved: readonly Client[] | null | undefined): Client[] => backfillClientDefaults(saved ?? seedClients())
 
 export const DEFAULT_SHIPPING_MULTIPLIER = 2
 export const multiplierOf = (c: Pick<Client, 'shippingMultiplier'>) => c.shippingMultiplier ?? DEFAULT_SHIPPING_MULTIPLIER
 
 /** What the client is charged for a typed figure: Mobile One's shipping times the multiplier, or our own DHL cost as typed (no mark-up). In cents. */
-export const chargeFor = (c: Pick<Client, 'id' | 'shippingBasis' | 'shippingMultiplier'>, typedCents: number): number => (shippingBasisOf(c) === 'own_dhl' ? typedCents : Math.round(typedCents * multiplierOf(c)))
+export const chargeFor = (c: Pick<Client, 'shippingBasis' | 'shippingMultiplier'>, typedCents: number): number => (shippingBasisOf(c) === 'own_dhl' ? typedCents : Math.round(typedCents * multiplierOf(c)))
 
 /**
  * `previous` is the saved list: a client that is new, or that was a test client, must have its payment

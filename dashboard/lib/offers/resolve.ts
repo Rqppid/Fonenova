@@ -6,7 +6,7 @@
  */
 import { getJson, type Store } from '../store'
 import { ukTime } from '../format-uk'
-import { seedClients, type Client } from './clients'
+import { clientsFrom, type Client } from './clients'
 import { xeroDraftUrl } from './xero-url'
 import { buildAnswerEmail, type AnswerOutcome, type DraftInfo, type NotifyEmail } from './notify-email'
 import { priceOffer, pricingInputOf, publicLines, type PublicLine } from './pricing'
@@ -64,7 +64,7 @@ export async function figuresFor(store: Store, o: Offer): Promise<Figures | null
 export async function figuresOrWhy(store: Store, o: Offer): Promise<{ figures: Figures | null; why: string | null }> {
   try {
     if (!o.pricing) return { figures: null, why: 'The offer has no saved price.' }
-    const clients = (await getJson<Client[]>(store, 'offers:clients')) ?? seedClients()
+    const clients = clientsFrom(await getJson<Client[]>(store, 'offers:clients'))
     const client = clients.find((c) => c.id === o.pricing!.clientId)
     if (!client) return { figures: null, why: 'The client this offer was priced for no longer exists.' }
     const r = priceOffer(o.lines, client, pricingInputOf(o))
