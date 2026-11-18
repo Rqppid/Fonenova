@@ -172,10 +172,11 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
   const [error, setError] = useState<string | null>(null)
   // Mobile One's shipping for the whole offer: read from the email or typed here, never assumed.
   const [shipText, setShipText] = useState(offer.shipping?.source === 'none' || offer.shipping?.mobileOneCents == null ? '' : (offer.shipping.mobileOneCents / 100).toFixed(2))
-  const [noShip, setNoShip] = useState(offer.shipping?.source === 'none')
+  // "No shipping" is decided after acceptance (a button on the waiting order), never ticked here.
+  const noShip = false
   const shipCents = noShip || shipText.trim() === '' ? null : parseEuro(shipText)
   const shipBad = !noShip && shipText.trim() !== '' && (shipCents === null || shipCents < 1)
-  const shipDirty = noShip !== (offer.shipping?.source === 'none') || (!noShip && shipCents !== (offer.shipping?.mobileOneCents ?? null))
+  const shipDirty = offer.shipping?.source === 'none' || shipCents !== (offer.shipping?.mobileOneCents || null)
   const parsed = rows.map(fromDraft)
   const valid = parsed.every(Boolean) && !shipBad
   const lines = parsed.filter((l): l is OfferLine => !!l)
@@ -244,7 +245,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
           <>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2"><span className="text-ink-2">€</span><input aria-label="Mobile One shipping" inputMode="decimal" disabled={noShip} value={shipText} onChange={(e) => setShipText(e.target.value)} placeholder="e.g. 120.00" className={cn('h-9 w-32 rounded-md border bg-surface px-2 text-right text-[13px] disabled:opacity-50', shipBad ? 'border-loss' : 'border-line')} /></label>
-              <label className="flex items-center gap-1.5 text-ink-2"><input type="checkbox" checked={noShip} onChange={(e) => setNoShip(e.target.checked)} />There is no shipping on this offer</label>
+              <span className="text-[12.5px] text-ink-2">To invoice with no shipping, use &quot;No shipping on this order&quot; after the client accepts.</span>
             </div>
             {shipBad && <p className="text-[12.5px] text-loss">Enter an amount like 120.00</p>}
           </>

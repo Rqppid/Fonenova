@@ -8,6 +8,10 @@ import type { LineFlag, OfferLine } from './types'
 const KNOWN: RegExp[] = [
   /^(apple\s+)?iphone\s+(1[1-7])\s*(e|plus|mini|air|pro\s*max|pro)?$/i,
   /^(apple\s+)?iphone\s+(16e|se)$/i,
+  /^(apple\s+)?ipad(\s+(pro|air|mini))?(\s+\d{1,2}(\.\d)?["-]?(\s*inch)?)?(\s+\d{4})?(\s+gen(eration)?\s*\d+)?(\s+\d+(th|st|nd|rd)\s+gen(eration)?)?(\s+(wi-?fi|cellular|5g|lte))*$/i,
+  /^(apple\s+)?macbook(\s+(air|pro))?(\s+\d{1,2}(\.\d)?["-]?(\s*inch)?)?(\s+m\d(\s+(pro|max|ultra))?)?(\s+\d{4})?$/i,
+  /^(apple\s+)?watch(\s+(series\s*\d+|se|ultra\s*\d?))?(\s+\d{2}\s*mm)?$/i,
+  /^(apple\s+)?airpods(\s+(pro|max))?(\s+\d(nd|rd|th)?\s*gen(eration)?|\s+\d)?(\s+(usb-?c|lightning))?$/i,
   /^(samsung\s+)?(galaxy\s+)?s2[1-6]\s*(fe|edge|plus|\+|ultra)?(\s*5g)?$/i,
   /^(samsung\s+)?(galaxy\s+)?a[0-9]{2}(\s*5g)?$/i,
   /^(samsung\s+)?(galaxy\s+)?z\s*(fold|flip)\s*[3-7](\s*fe)?$/i,
@@ -27,7 +31,7 @@ const digits = (s: string) => s.replace(/[^0-9]/g, '')
 
 export function lineFlags(line: OfferLine, all: readonly OfferLine[] = [line]): LineFlag[] {
   const f: LineFlag[] = []
-  if (!knownModel(line.model)) f.push({ code: 'model', level: 'error', message: `"${line.model}" is not a model Mobile One usually sells. Check it is not a typo (e.g. iPhone 7 Pro for 17 Pro).` })
+  if (!knownModel(line.model)) f.push({ code: 'model', level: 'warn', message: `"${line.model}" is not a model Mobile One usually sells. Check it is not a typo (e.g. iPhone 7 Pro for 17 Pro).` })
   if (!line.storage) f.push({ code: 'storage', level: 'warn', message: 'No storage size given.' })
   else if (!STORAGE.test(line.storage.trim())) f.push({ code: 'storage', level: 'warn', message: `Storage "${line.storage}" looks unusual.` })
   if (!Number.isSafeInteger(line.qty) || line.qty <= 0) f.push({ code: 'qty', level: 'error', message: 'Quantity must be a whole number above 0.' })
