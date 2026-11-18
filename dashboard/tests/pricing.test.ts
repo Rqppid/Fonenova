@@ -65,11 +65,13 @@ describe('pricing an offer', () => {
     expect(one.lowCount).toBe(1)
   })
 
-  it('will not price a line the review flagged (unknown model, price out of range)', () => {
-    const lines = [...nov12, L('d4d4d4', 'iPhone 7 Pro', '256GB', '', 300, 854)]
+  it('an unknown model only warns, but a price out of range still blocks pricing', () => {
+    const odd = priceOffer([...nov12, L('d4d4d4', 'iPhone 7 Pro', '256GB', '', 300, 854)], wave, input({ marginCents: 700 }))
+    expect(odd.ok).toBe(true)
+    const lines = [...nov12, L('d4d4d4', 'iPhone 17', '256GB', '', 300, 5)]
     const r = priceOffer(lines, wave, input({ marginCents: 700 }))
     expect(r.ok).toBe(false)
-    expect(r.lines[3].blocked).toContain('iPhone 7 Pro')
+    expect(r.lines[3].blocked).toContain('Unit cost')
     expect(r.errors.join(' ')).toContain('1 line need fixing')
     expect(priceOffer([], wave, input({ marginCents: 700 })).ok).toBe(false)
   })

@@ -213,3 +213,26 @@ describe('the screen', () => {
     expect(html).toContain('Mobile One €120.00 × 2')
   })
 })
+
+describe('models the list does not know, and a stale "no shipping"', () => {
+  it('iPads and other Apple products are recognised, and an unknown model only warns', async () => {
+    const { knownModel, lineFlags } = await import('@/lib/offers/check')
+    for (const m of ['Apple iPad Pro 13-inch (2025)', 'iPad Air 11-inch', 'iPad 10th gen', 'iPad mini', 'MacBook Air 13-inch M3', 'AirPods Pro 2', 'Apple Watch Series 10']) expect(knownModel(m), m).toBe(true)
+    const odd = { id: 'x', model: 'Fairphone 5', storage: '256GB', grade: 'A', qty: 5, unitCostCents: 45_000, sourceText: '', note: null }
+    const flags = lineFlags(odd)
+    expect(flags.some((f) => f.code === 'model')).toBe(true)
+    expect(flags.some((f) => f.level === 'error')).toBe(false)
+    const wave = seedClients().find((c) => c.id === 'c_wave')!
+    expect(priceOffer([odd], wave, { clientId: 'c_wave', marginCents: 700, overrides: {}, ackLow: false, shippingLater: true }).ok).toBe(true)
+    // Real errors still block.
+    expect(lineFlags({ ...odd, qty: 0 }).some((f) => f.level === 'error')).toBe(true)
+    expect(lineFlags({ ...odd, unitCostCents: 500 }).some((f) => f.level === 'error')).toBe(true)
+  })
+  it('a "no shipping" left on the offer no longer makes a Wave draft with no shipping: it waits', async () => {
+    const t = setup(offer())
+    ;(t.store.data.get('offers') as Offer[])[0].shipping = { mobileOneCents: 0, source: 'none', sourceText: null }
+    await fulfilOffer('o1', t.d)
+    expect(t.get().fulfilment!.draft.state).toBe('waiting')
+    expect(t.created).toHaveLength(0)
+  })
+})

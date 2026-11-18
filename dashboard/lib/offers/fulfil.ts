@@ -187,8 +187,8 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   // charged a multiple of it, use it now. Otherwise the draft waits: no invoice number is used until the shipping is known.
   if (figures.shippingPending) {
     const known = claimed.shipping
-    if (client && shippingBasisOf(client) === 'mobile_one' && known && (known.source === 'none' || (known.mobileOneCents ?? 0) > 0)) {
-      const cents = known.source === 'none' ? 0 : chargeFor(client, known.mobileOneCents!)
+    if (client && shippingBasisOf(client) === 'mobile_one' && known && (known.mobileOneCents ?? 0) > 0) {
+      const cents = chargeFor(client, known.mobileOneCents!)
       const at2 = nowOf(d).toISOString()
       await mutate(d.store, id, (o) => (o.fulfilment ? { ...o, updatedAt: at2, fulfilment: { ...o.fulfilment, draft: { ...o.fulfilment.draft, state: 'pending' as const, attempts: Math.max(0, o.fulfilment.draft.attempts - 1) }, shipping: { cents, ...(known.source === 'none' ? {} : { mobileOneCents: known.mobileOneCents! }), source: known.source === 'none' ? ('none' as const) : ('email' as const), at: at2 } }, audit: log(o, at2, known.source === 'none' ? 'Shipping: none, as you confirmed on the offer' : `Shipping ${eur(cents)} (Mobile One's ${eur(known.mobileOneCents!)} x ${client.shippingMultiplier ?? 2}) from the offer`) } : null))
       return runDraft(id, d) // back to pending with the figure in place: run it again
