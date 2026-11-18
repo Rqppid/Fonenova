@@ -11,6 +11,8 @@ export interface OfferViewData {
   units: number
   /** Shipping in cents, inside the total. 0 when there is none. */
   shippingCents?: number
+  /** Shipping is not in the total: it is added to the invoice. */
+  shippingLater?: boolean
   totalCents: number
   expiresAt: string
   test: boolean
@@ -97,6 +99,7 @@ export function OfferView({ data }: { data: OfferViewData }) {
             </tfoot>
           </table>
         </div>
+        {data.shippingLater ? <p className="mt-2 text-sm text-muted-foreground" data-testid="offer-shipping-later">Shipping is added to the invoice.</p> : null}
 
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           All prices in euros. Subject to availability. {open ? <>Prices are valid until <strong className="font-semibold text-foreground">{ukTime(data.expiresAt)}</strong>.</> : "Prices were valid until " + ukTime(data.expiresAt) + "."} The offer is for all items together: it can be accepted or declined as a whole.

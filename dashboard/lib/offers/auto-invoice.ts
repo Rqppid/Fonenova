@@ -51,6 +51,7 @@ async function plan(o: Offer, d: InvoiceDeps): Promise<Plan> {
   if (!(Date.parse(f.startedAt) >= Date.parse(AUTO_FROM))) return { mode: 'off', why: 'This order started before automatic invoicing existed, so it is left to you.' }
   // The owner already pressed Approve or Send himself: step aside, never race him.
   if (f.approve || f.send) return { mode: 'off', why: 'You already started the invoice yourself, so it is not done automatically.' }
+  if (f.draft.state === 'waiting') return { mode: 'hold', why: 'Waiting for the shipping cost: the invoice is made once it is entered.' }
   if (f.draft.state !== 'done' || !f.draft.invoiceId) return { mode: 'hold', why: 'There is no draft invoice yet.' }
   if (f.draft.warnings?.some((w) => /address/i.test(w))) return { mode: 'hold', why: `${client.name} has no usable address in Xero. Add one, then press Re-check in Xero.` }
   if (!client.test && !client.termsConfirmed) return { mode: 'hold', why: `${client.name}'s payment terms are not confirmed (Offers, Clients).` }

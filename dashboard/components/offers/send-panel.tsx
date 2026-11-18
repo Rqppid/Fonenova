@@ -101,7 +101,7 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
       <section aria-labelledby="send-title" className="space-y-3 rounded-md border border-line p-4" data-testid="send-panel">
         <h3 id="send-title" className="text-[14px] font-semibold text-ink capitalize">{offer.status}</h3>
         <p className="text-[13px] text-ink">{text}</p>
-        {offer.status === 'accepted' && <AfterAcceptance offer={offer} invoice={setup.invoice} bills={setup.bills?.[offer.id]} />}
+        {offer.status === 'accepted' && <AfterAcceptance offer={offer} invoice={setup.invoice} bills={setup.bills?.[offer.id]} client={client} />}
         {errorBox}
         {offer.status !== 'accepted' && <Button size="sm" variant="primary" disabled={busy} onClick={() => act('unlock')}>{busy ? 'Working…' : 'Unlock to reprice'}</Button>}
         {history}
@@ -115,7 +115,6 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
   const pub = publicLines(offer.lines, r)
   const blocked = setup.storeProblem ? setup.storeProblem
     : setup.gmailProblem ? setup.gmailProblem
-    : r.shipping.error ? r.shipping.error
     : !client.test && !setup.liveXeroReady ? 'Real clients also need the live Xero organisation connected and live drafts switched on (XERO_WRITE_ALLOW_LIVE): a separate step from allowing real client sending. Price it for the test client to try the whole journey.'
     : !client.test && !setup.allowReal ? 'Sending to real clients is switched off (OFFERS_ALLOW_REAL_SEND): a separate step from the live Xero connection. Price it for the test client to try the whole journey.'
     : !client.offerEmails.length ? (client.test ? 'Add your own email address to the test client first (Offers, Clients).' : `${client.name} has no offer email address (Offers, Clients).`)

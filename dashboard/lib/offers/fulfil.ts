@@ -12,7 +12,7 @@ import { ukTime } from '../format-uk'
 import { getJson, type Store } from '../store'
 import { loadDraftSettings, raiseDraft, type XeroApi } from './draft'
 import { emailAddress } from './clean'
-import { seedClients, type Client } from './clients'
+import { chargeFor, seedClients, shippingBasisOf, type Client } from './clients'
 import { nextOrderRef } from './numbering'
 import { figuresFor, figuresOrWhy } from './resolve'
 import type { DraftDebug, Fulfilment, Offer, OfferSend } from './types'
@@ -96,7 +96,8 @@ async function gate(o: Offer, s: OfferSend, d: FulfilDeps): Promise<string | nul
   const age = nowOf(d).getTime() - Date.parse(o.source.receivedAt)
   if (!(age <= MAX_OFFER_AGE_MS)) return `Mobile One's offer is more than 48 hours old (${ukTime(o.source.receivedAt)}).`
   const figures = await figuresFor(d.store, o)
-  const total = figures ? figures.grandCents : null
+  // An order priced with shipping added later was accepted at the items total; the shipping comes on the invoice.
+  const total = figures ? (o.pricing?.shippingLater ? figures.itemsCents : figures.grandCents) : null
   if (total === null || total !== s.totalCents) return `The accepted total (${eur(s.totalCents)}) does not match the offer as priced now.`
   try {
     if (await d.replied(o.source.threadId, o.source.receivedAt)) return 'You have already replied in that thread.'
@@ -182,6 +183,21 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   const client = claimed.pricing ? clients.find((c) => c.id === claimed.pricing!.clientId) : undefined
   const { figures, why } = await figuresOrWhy(d.store, claimed)
   if (!client || !figures) return void (await block(why ?? 'The offer could not be priced again from its saved settings.'))
+  // Priced without shipping: if the offer email stated Mobile One's shipping (or the owner typed it on the offer) and the client is
+  // charged a multiple of it, use it now. Otherwise the draft waits: no invoice number is used until the shipping is known.
+  if (figures.shippingPending) {
+    const known = claimed.shipping
+    if (client && shippingBasisOf(client) === 'mobile_one' && known && (known.source === 'none' || (known.mobileOneCents ?? 0) > 0)) {
+      const cents = known.source === 'none' ? 0 : chargeFor(client, known.mobileOneCents!)
+      const at2 = nowOf(d).toISOString()
+      await mutate(d.store, id, (o) => (o.fulfilment ? { ...o, updatedAt: at2, fulfilment: { ...o.fulfilment, draft: { ...o.fulfilment.draft, state: 'pending' as const, attempts: Math.max(0, o.fulfilment.draft.attempts - 1) }, shipping: { cents, ...(known.source === 'none' ? {} : { mobileOneCents: known.mobileOneCents! }), source: known.source === 'none' ? ('none' as const) : ('email' as const), at: at2 } }, audit: log(o, at2, known.source === 'none' ? 'Shipping: none, as you confirmed on the offer' : `Shipping ${eur(cents)} (Mobile One's ${eur(known.mobileOneCents!)} x ${client.shippingMultiplier ?? 2}) from the offer`) } : null))
+      return runDraft(id, d) // back to pending with the figure in place: run it again
+    }
+    const waitingAt = nowOf(d).toISOString()
+    await finish({ ...f.draft, state: 'waiting', attempts: Math.max(0, f.draft.attempts - 1), at: waitingAt, reason: 'Waiting for the shipping cost.' }, 'Draft invoice waiting for the shipping cost')
+    await d.notify(`${f.test ? '[TEST] ' : ''}${f.orderRef} accepted. The invoice is waiting for the shipping cost: ${shippingBasisOf(client) === 'own_dhl' ? `enter the cost of our own DHL label (no mark-up) for ${client.name}` : `enter Mobile One's shipping from their invoice (charged x${client.shippingMultiplier ?? 2})`}.`, link(d, claimed))
+    return
+  }
   // A real client needs its payment terms chosen on purpose: a due date from a placeholder would be a wrong invoice.
   if (!client.test && !client.termsConfirmed) return void (await block(`Confirm ${client.name}'s payment terms (Offers, Clients) before a draft invoice is raised for them.`))
 
@@ -202,7 +218,7 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
 function summary(o: Offer): string {
   const f = o.fulfilment!
   const reply = { sent: f.test ? 'test reply sent to your inbox' : 'replied to Mobile One', held: 'reply to Mobile One is waiting for your OK', failed: 'reply to Mobile One failed (retrying)', pending: 'reply pending', sending: 'reply sending' }[f.reply.state]
-  const draft = f.draft.state === 'done' ? `invoice ${f.draft.invoiceNumber} is ready to check and approve (draft in Xero${f.draft.org ? `, ${f.draft.org}` : ''}; nothing approved or sent)` : f.draft.state === 'blocked' ? `draft invoice is blocked: ${f.draft.reason}` : f.draft.state === 'failed' ? 'draft invoice failed (retrying)' : 'draft invoice pending'
+  const draft = f.draft.state === 'done' ? `invoice ${f.draft.invoiceNumber} is ready to check and approve (draft in Xero${f.draft.org ? `, ${f.draft.org}` : ''}; nothing approved or sent)` : f.draft.state === 'blocked' ? `draft invoice is blocked: ${f.draft.reason}` : f.draft.state === 'failed' ? 'draft invoice failed (retrying)' : f.draft.state === 'waiting' ? 'the invoice is waiting for the shipping cost' : 'draft invoice pending'
   return `${f.test ? '[TEST] ' : ''}${f.orderRef}: ${reply}; ${draft}.`
 }
 
@@ -264,6 +280,15 @@ export async function sweepFulfilment(d: FulfilDeps): Promise<{ tried: number; c
   for (const o of offers) {
     const f = o.fulfilment
     if (!f || o.status !== 'accepted') continue
+    // Waiting for the shipping cost: nothing to retry, but do not let it sit unnoticed.
+    if (f.draft.state === 'waiting') {
+      const ms = (x?: string) => (x ? Date.parse(x) || 0 : 0)
+      if (nowOf(d).getTime() - Math.max(ms(f.draft.at), ms(f.shippingRemindedAt)) > 24 * 3_600_000) {
+        const at = nowOf(d).toISOString()
+        const marked = await mutate(d.store, o.id, (cur) => (cur.fulfilment?.draft.state === 'waiting' ? { ...cur, fulfilment: { ...cur.fulfilment, shippingRemindedAt: at } } : null))
+        if (marked) await d.notify(`${f.test ? '[TEST] ' : ''}${f.orderRef}: still waiting for the shipping cost, so no invoice has been made. Enter it on the offer.`, link(d, o))
+      }
+    }
     const stale = (at?: string) => nowOf(d).getTime() - Date.parse(at ?? '') > STALE_MS
     const replyWork = f.reply.state === 'pending' || (f.reply.state === 'failed' && f.reply.attempts < MAX_ATTEMPTS) || (f.reply.state === 'sending' && stale(f.reply.at))
     const draftWork = f.draft.state === 'pending' || (f.draft.state === 'failed' && f.draft.attempts < MAX_ATTEMPTS) || (f.draft.state === 'working' && stale(f.draft.at))

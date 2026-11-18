@@ -6,8 +6,11 @@ import { Button } from '@/components/ui/button'
 import { InvoiceSteps, type InvoiceSetup } from '@/components/offers/invoice-steps'
 import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import { xeroDraftUrl } from '@/lib/offers/xero-url'
+import { multiplierOf, shippingBasisOf, type Client } from '@/lib/offers/clients'
 import type { Offer } from '@/lib/offers/types'
 import { cn } from '@/lib/utils'
+
+const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 type Tone = 'ok' | 'wait' | 'bad'
 const ICON = { ok: CircleCheck, wait: Clock, bad: CircleAlert }
@@ -27,16 +30,17 @@ function Row({ tone, title, children, testId }: { tone: Tone; title: string; chi
 }
 
 /** What follows an acceptance: the reply to Mobile One and the DRAFT invoice in Xero. */
-export function AfterAcceptance({ offer, invoice, bills }: { offer: Offer; invoice?: InvoiceSetup; bills?: BillCandidate[] }) {
+export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offer; invoice?: InvoiceSetup; bills?: BillCandidate[]; client?: Client | null }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [shipText, setShipText] = useState('')
   const f = offer.fulfilment
 
-  async function act(action: 'reply_ok' | 'fulfil_retry') {
+  async function act(action: 'reply_ok' | 'fulfil_retry' | 'shipping_set', extra: object = {}) {
     setBusy(true)
     setError(null)
-    const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, id: offer.id }) }).catch(() => null)
+    const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, id: offer.id, ...extra }) }).catch(() => null)
     const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
     setBusy(false)
     if (!(res?.ok && out?.ok)) setError(out?.error ?? 'Could not do that. Check your connection and try again.')
@@ -56,6 +60,10 @@ export function AfterAcceptance({ offer, invoice, bills }: { offer: Offer; invoi
   const r = f.reply
   const d = f.draft
   const replyTone: Tone = r.state === 'sent' ? 'ok' : r.state === 'held' || r.state === 'failed' ? 'bad' : 'wait'
+  const own = client ? shippingBasisOf(client) === 'own_dhl' : false
+  const mult = client ? multiplierOf(client) : 2
+  const shipCents = (() => { const t = shipText.trim().replace(/^€/, '').replace(/,/g, ''); if (!/^\d+(\.\d{1,2})?$/.test(t)) return null; const c = Math.round(Number(t) * 100); return c >= 1 && c <= 10_000_000 ? c : null })()
+  const sh = f.shipping
   const draftTone: Tone = d.state === 'done' ? 'ok' : d.state === 'blocked' || d.state === 'failed' ? 'bad' : 'wait'
   const replyWhere = f.test ? 'your own inbox (a test: nothing goes to Mobile One)' : 'Mobile One, in their thread'
   const stuck = r.state === 'failed' || d.state === 'failed' || d.state === 'blocked'
@@ -76,6 +84,26 @@ export function AfterAcceptance({ offer, invoice, bills }: { offer: Offer; invoi
           )}
           {r.state === 'failed' && <p>Did not send (try {r.attempts}): {r.reason}. It tries again every 5 minutes.</p>}
         </Row>
+        {offer.pricing?.shippingLater === true && (
+          <Row tone={sh ? 'ok' : 'wait'} title="Shipping" testId="step-shipping">
+            {sh ? (
+              <p data-testid="shipping-done">
+                {sh.source === 'none' ? 'No shipping on this order.' : <>{eur(sh.cents)} charged{sh.mobileOneCents != null ? ` (Mobile One ${eur(sh.mobileOneCents)} × ${mult})` : own ? ' (our own DHL cost, no mark-up)' : ''}.</>}
+                {sh.source === 'email' && ' Read from the offer email.'}
+              </p>
+            ) : d.state === 'waiting' ? (
+              <div className="space-y-1.5" data-testid="shipping-waiting">
+                <p>{own ? 'This client pays our own DHL cost with no mark-up. Enter it once the label is made.' : `Enter Mobile One's shipping from their invoice. The client is charged it × ${mult}.`}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5"><span className="text-ink-2">€</span><input aria-label={own ? 'Our DHL cost, euros' : "Mobile One's shipping, euros"} inputMode="decimal" value={shipText} onChange={(e) => setShipText(e.target.value)} placeholder="e.g. 120.00" className="h-9 w-32 rounded-md border border-line bg-surface px-2 text-right text-[13px]" /></label>
+                  <Button size="sm" variant="primary" disabled={busy || shipCents === null} onClick={() => act('shipping_set', { cents: shipCents })} data-testid="shipping-save">{busy ? 'Saving…' : 'Make the draft invoice'}</Button>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => act('shipping_set', { none: true })} data-testid="shipping-none">No shipping on this order</Button>
+                </div>
+                {shipCents !== null && <p className="text-[12.5px]">The client will be charged {eur(own ? shipCents : Math.round(shipCents * mult))}.</p>}
+              </div>
+            ) : <p>Not entered.</p>}
+          </Row>
+        )}
         <Row tone={draftTone} title="Draft invoice in Xero" testId="step-draft">
           {d.state === 'done' && (
             <p>
@@ -85,6 +113,7 @@ export function AfterAcceptance({ offer, invoice, bills }: { offer: Offer; invoi
             </p>
           )}
           {(d.state === 'pending' || d.state === 'working') && <p>Creating the draft…</p>}
+          {d.state === 'waiting' && <p data-testid="draft-waiting">Waiting for the shipping cost (see Shipping below). No invoice number is used until it is entered.</p>}
           {d.debug && (d.state === 'blocked' || d.state === 'failed') && (
             <details className="mt-1 text-[12px]" data-testid="draft-debug">
               <summary className="cursor-pointer">Technical detail (what was sent to Xero and what came back)</summary>

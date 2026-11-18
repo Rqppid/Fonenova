@@ -15,6 +15,8 @@ export interface PublicOffer {
   units: number
   /** Shipping, in cents, already inside `totalCents`. 0 when there is none. */
   shippingCents: number
+  /** Shipping is not in the total: it is added to the invoice once known. */
+  shippingLater?: boolean
   /** Items plus shipping: what the client pays. */
   totalCents: number
   issuedAt: string
