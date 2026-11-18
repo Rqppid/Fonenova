@@ -14,7 +14,7 @@ import { ukTime } from '../format-uk'
 import { getJson } from '../store'
 import type { XeroInvoice, XeroPair } from '../types'
 import type { Client } from './clients'
-import { seedClients } from './clients'
+import { clientsFrom } from './clients'
 import { xeroDraftUrl } from './xero-url'
 import { type FulfilDeps, load, log, mutate } from './fulfil'
 import { figuresOrWhy } from './resolve'
@@ -51,7 +51,7 @@ export type ActionResult = { ok: boolean; message: string }
 const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const nowOf = (d: FulfilDeps) => d.now ?? new Date()
 const link = (d: FulfilDeps, o: Offer) => (d.dashboardUrl ? { label: 'Open offer', url: `${d.dashboardUrl}/offers?id=${encodeURIComponent(o.id)}` } : undefined)
-const clientOf = async (d: FulfilDeps, o: Offer): Promise<Client | undefined> => ((await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()).find((c) => c.id === o.pricing?.clientId)
+const clientOf = async (d: FulfilDeps, o: Offer): Promise<Client | undefined> => (clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))).find((c) => c.id === o.pricing?.clientId)
 
 async function setStep(d: FulfilDeps, id: string, key: 'approve' | 'send' | 'filing', step: InvoiceStep, note: string): Promise<Offer | null> {
   return mutate(d.store, id, (o) => (o.fulfilment ? { ...o, updatedAt: nowOf(d).toISOString(), fulfilment: { ...o.fulfilment, [key]: step }, audit: log(o, nowOf(d).toISOString(), note) } : null))

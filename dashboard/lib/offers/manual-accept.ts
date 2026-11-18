@@ -11,7 +11,7 @@
  */
 import crypto from 'node:crypto'
 import { getJson } from '../store'
-import { seedClients, type Client } from './clients'
+import { clientsFrom, type Client } from './clients'
 import { type FulfilDeps, load, log, mutate } from './fulfil'
 import { priceOffer, pricingInputOf } from './pricing'
 import type { Offer, OfferSend } from './types'
@@ -28,7 +28,7 @@ export async function acceptByEmail(offerId: string, d: FulfilDeps & { fulfil: (
   if (offer.status !== 'ready') return { ok: false, message: offer.status === 'sent' ? 'This offer was sent from the dashboard. Withdraw it first if the client answered by email instead.' : 'Mark the offer reviewed and priced first.' }
   if (!offer.pricing) return { ok: false, message: 'Price the offer for the client first.' }
   if (offer.pricing.shippingLater !== true) return { ok: false, message: 'This price was saved before shipping moved to the invoice. Press "Update price" in the Price panel, then try again.' }
-  const clients = (await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()
+  const clients = clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))
   const client = clients.find((c) => c.id === offer.pricing!.clientId)
   if (!client) return { ok: false, message: 'The client this offer is priced for no longer exists.' }
   if (offer.testOnly && !client.test) return { ok: false, message: 'This is a test offer: it can only be recorded for a test client.' }

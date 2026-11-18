@@ -12,7 +12,7 @@ import { ukTime } from '../format-uk'
 import { getJson, type Store } from '../store'
 import { loadDraftSettings, raiseDraft, type XeroApi } from './draft'
 import { emailAddress } from './clean'
-import { chargeFor, seedClients, shippingBasisOf, type Client } from './clients'
+import { chargeFor, clientsFrom, shippingBasisOf, type Client } from './clients'
 import { nextOrderRef } from './numbering'
 import { figuresFor, figuresOrWhy } from './resolve'
 import type { DraftDebug, Fulfilment, Offer, OfferSend } from './types'
@@ -179,7 +179,7 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
 
   const api = d.xero()
   if (!api) return void (await block('The Xero write connection is not set up. Connect it in Settings, then press Try again.'))
-  const clients = (await getJson<Client[]>(d.store, 'offers:clients')) ?? seedClients()
+  const clients = clientsFrom(await getJson<Client[]>(d.store, 'offers:clients'))
   const client = claimed.pricing ? clients.find((c) => c.id === claimed.pricing!.clientId) : undefined
   const { figures, why } = await figuresOrWhy(d.store, claimed)
   if (!client || !figures) return void (await block(why ?? 'The offer could not be priced again from its saved settings.'))

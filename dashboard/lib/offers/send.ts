@@ -13,7 +13,7 @@
  */
 import { getJson, type Store } from '../store'
 import { buildOfferEmail, type OfferEmail } from './email'
-import { seedClients, type Client } from './clients'
+import { clientsFrom, type Client } from './clients'
 import { priceOffer, pricingInputOf, publicLines } from './pricing'
 import { deletePublicOffer, hashToken, newToken, OFFER_VALID_MS, publicStoreProblem, putPublicOffer, getPublicAnswer, withdrawPublicOffer, type PublicOffer } from './public-store'
 import type { Offer, OfferSend } from './types'
@@ -38,7 +38,7 @@ export type Result = { ok: true; offer: Offer } | { ok: false; error: string }
 
 const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const log = (o: Offer, now: string, what: string) => [...o.audit, { at: now, what }].slice(-60)
-const clientsOf = async (store: Store) => (await getJson<Client[]>(store, 'offers:clients')) ?? seedClients()
+const clientsOf = async (store: Store) => clientsFrom(await getJson<Client[]>(store, 'offers:clients'))
 
 async function mutate(store: Store, id: string, fn: (o: Offer) => Offer | { error: string }): Promise<Result> {
   return store.withLock('offers', async () => {

@@ -60,13 +60,12 @@ function setup(o: Offer, opts: Opts = {}) {
 
 describe('which clients are automatic', () => {
   const [wave, eu, test] = seedClients()
-  it('Wave, EU Telecoms and the test client by default; any other client not; an explicit setting wins', () => {
-    expect(autoInvoiceOf(wave)).toBe(true)
-    expect(autoInvoiceOf(eu)).toBe(true)
+  it('automatic invoicing is a plain setting: seeded Wave, EU Telecoms and test are on, a new client is off, an explicit setting wins', () => {
     expect(autoInvoiceOf(test)).toBe(true)
-    expect(autoInvoiceOf({ id: 'c_new', test: false })).toBe(false)
+    expect(autoInvoiceOf(wave)).toBe(false) // a seeded real client is off until it is confirmed and switched on
+    expect(autoInvoiceOf({})).toBe(false)
     expect(autoInvoiceOf({ ...wave, autoInvoice: false })).toBe(false)
-    expect(autoInvoiceOf({ id: 'c_new', test: false, autoInvoice: true })).toBe(true)
+    expect(autoInvoiceOf({ autoInvoice: true })).toBe(true)
   })
   it('a real client cannot be switched to automatic half set up, and the value must be on or off', () => {
     const base = { ...wave, termsConfirmed: true, invoiceEmails: ['a@wave.example'] }
@@ -120,10 +119,10 @@ describe('scheduling the automatic invoice', () => {
     expect(t.get().fulfilment!.auto!.state).toBe('scheduled')
   })
   it('holds for missing terms, a missing invoice email, a test in live Xero, a real order in a demo, or no Xero connection', async () => {
-    const terms = setup(offer(), { clientPatch: { termsConfirmed: false } })
+    const terms = setup(offer(), { clientPatch: { termsConfirmed: false, autoInvoice: true } })
     await scheduleAuto('of_a1', terms.d)
     expect(terms.get().fulfilment!.auto).toMatchObject({ state: 'blocked', reason: expect.stringContaining('payment terms') })
-    const email = setup(offer(), { clientPatch: { invoiceEmails: [] } })
+    const email = setup(offer(), { clientPatch: { invoiceEmails: [], autoInvoice: true } })
     await scheduleAuto('of_a1', email.d)
     expect(email.get().fulfilment!.auto).toMatchObject({ state: 'blocked', reason: expect.stringContaining('invoice email') })
     const liveTest = offer(true); liveTest.fulfilment!.draft.org = 'Fonenova Ltd'
