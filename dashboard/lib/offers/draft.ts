@@ -87,6 +87,8 @@ export interface XeroApi {
   invoicePdf?(id: string): Promise<Uint8Array>
   /** The contact's address, and its invoices from the last 14 days (for warnings; best effort, never blocks a draft). */
   contactCheck?(contactId: string, sinceDate: string): Promise<{ hasAddress: boolean | null; recent: { number: string; date: string; status: string; reference: string }[] }>
+  /** The contact's street address, for pricing a parcel to it. Null when the contact has none. */
+  contactAddress?(contactId: string): Promise<{ lines: string[]; city: string; postalCode: string; country: string } | null>
   /** The organisation's branding themes with their API ids, for the Settings dropdown. */
   brandingThemes?(): Promise<{ id: string; name: string }[]>
 }

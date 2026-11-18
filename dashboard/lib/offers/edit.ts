@@ -26,6 +26,8 @@ export type OfferEdit =
   | { action: 'draft_recheck'; id: string }
   | { action: 'bill_confirm'; id: string; billId: string }
   | { action: 'shipping_set'; id: string; cents: number | null; none: boolean }
+  | { action: 'dhl_quote'; id: string; parcel: unknown }
+  | { action: 'dhl_origin_set'; origin: unknown }
   | { action: 'accept_manual'; id: string; totalCents: number; note: string; confirm: boolean }
   | { action: 'archive_test'; id: string }
   | { action: 'delete_offer'; id: string; confirm: boolean }
@@ -47,6 +49,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
   const b = body as Record<string, unknown>
   if (b.action === 'create_test') return { ok: true, value: { action: 'create_test' } }
   if (b.action === 'archive_all_tests') return { ok: true, value: { action: 'archive_all_tests' } }
+  if (b.action === 'dhl_origin_set') return { ok: true, value: { action: 'dhl_origin_set', origin: b.origin } }
   const id = str(b.id, 80)
   if (!id || !/^of_[A-Za-z0-9_-]+$/.test(id)) return { ok: false, error: 'Unknown offer' }
   if (b.action === 'status') {
@@ -67,6 +70,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     if (typeof b.cents !== 'number' || !Number.isSafeInteger(b.cents) || b.cents < 1 || b.cents > 10_000_000) return { ok: false, error: 'The shipping must be an amount between €0.01 and €100,000.00' }
     return { ok: true, value: { action: 'shipping_set', id, cents: b.cents, none: false } }
   }
+  if (b.action === 'dhl_quote') return { ok: true, value: { action: 'dhl_quote', id, parcel: b.parcel } }
   if (b.action === 'delete_offer') return { ok: true, value: { action: 'delete_offer', id, confirm: b.confirm === true } }
   if (b.action === 'archive_test' || b.action === 'auto_hold' || b.action === 'auto_resume') return { ok: true, value: { action: b.action, id } }
   if (b.action === 'imei_clear') return { ok: true, value: { action: 'imei_clear', id } }
@@ -104,7 +108,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     if (sc !== null && (typeof sc !== 'number' || !Number.isSafeInteger(sc))) return { ok: false, error: "The client's shipping must be a whole number of cents" }
     return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true, shippingCents: sc as number | null } } }
   }
-  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry, create_test, shipping_set, accept_manual, delete_offer, archive_test, archive_all_tests, invoice_approve, invoice_send, invoice_file, draft_recheck, bill_confirm, auto_hold, auto_resume, imei_find, imei_attach, imei_clear or imei_send' }
+  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry, create_test, shipping_set, dhl_quote, dhl_origin_set, accept_manual, delete_offer, archive_test, archive_all_tests, invoice_approve, invoice_send, invoice_file, draft_recheck, bill_confirm, auto_hold, auto_resume, imei_find, imei_attach, imei_clear or imei_send' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
   const lines: OfferLine[] = []
   for (const [i, raw] of (b.lines as unknown[]).entries()) {
@@ -143,7 +147,7 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
   if (o.status === 'sent' || o.status === 'accepted' || o.status === 'declined' || o.status === 'expired') {
     return { error: o.status === 'sent' ? 'This offer has been sent. Withdraw it to change it.' : o.status === 'accepted' ? 'This offer was accepted, so it can no longer be changed.' : 'This offer was answered or expired. Unlock it to reprice it.' }
   }
-  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test' || e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm' || e.action === 'shipping_set' || e.action === 'accept_manual' || e.action === 'delete_offer' || e.action === 'archive_test' || e.action === 'archive_all_tests' || e.action === 'auto_hold' || e.action === 'auto_resume' || e.action === 'imei_find' || e.action === 'imei_attach' || e.action === 'imei_clear' || e.action === 'imei_send') return { error: 'That action is handled separately' }
+  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test' || e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm' || e.action === 'shipping_set' || e.action === 'dhl_quote' || e.action === 'dhl_origin_set' || e.action === 'accept_manual' || e.action === 'delete_offer' || e.action === 'archive_test' || e.action === 'archive_all_tests' || e.action === 'auto_hold' || e.action === 'auto_resume' || e.action === 'imei_find' || e.action === 'imei_attach' || e.action === 'imei_clear' || e.action === 'imei_send') return { error: 'That action is handled separately' }
   if (e.action === 'unprice') {
     if (!o.pricing) return { error: 'This offer is not priced' }
     const { pricing: _p, ...rest } = o
