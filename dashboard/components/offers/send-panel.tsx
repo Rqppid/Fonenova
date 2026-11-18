@@ -138,6 +138,7 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
       {blocked && <p className="rounded-md border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] text-warn" data-testid="send-blocked">{blocked}</p>}
       {!blocked && setup.webhookWarning && <p className="text-[12.5px] text-ink-2" data-testid="send-webhook-note">{setup.webhookWarning}</p>}
       {errorBox}
+      <ManualAccept offer={offer} grandCents={r.totals.saleCents} />
       {!confirming ? (
         <Button size="sm" variant="primary" disabled={!!blocked || busy} onClick={() => setConfirming(true)}><Send className="h-4 w-4" aria-hidden />Send to {client.name}</Button>
       ) : (
@@ -151,5 +152,42 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
       )}
       {history}
     </section>
+  )
+}
+
+/** The offer was emailed by hand and the client said yes by email: record it so the invoice flow starts. */
+function ManualAccept({ offer, grandCents }: { offer: Offer; grandCents: number }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [total, setTotal] = useState('')
+  const [note, setNote] = useState('')
+  const [tick, setTick] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const t = total.trim().replace(/^€/, '').replace(/,/g, '')
+  const cents = /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(Number(t) * 100) : null
+  async function go() {
+    setBusy(true)
+    setMsg(null)
+    const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'accept_manual', id: offer.id, totalCents: cents, note, confirm: tick }) }).catch(() => null)
+    const out = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string } | null
+    setBusy(false)
+    if (res?.ok && out?.ok) { setMsg({ ok: true, text: out.message ?? 'Recorded.' }); router.refresh() }
+    else setMsg({ ok: false, text: out?.error ?? 'Could not do that. Check your connection and try again.' })
+  }
+  if (!open) return <button type="button" className="text-left text-[13px] text-navy underline" onClick={() => setOpen(true)} data-testid="manual-accept-open">Already emailed to the client and they accepted? Record it here</button>
+  return (
+    <div className="space-y-2 rounded-md border border-line bg-subtle p-3 text-[13px]" data-testid="manual-accept">
+      <p className="font-medium text-ink">Sent by email, accepted by email</p>
+      <p className="text-ink-2">Use this when the offer went to the client outside the dashboard. Nothing is sent to the client. Enter the items total they agreed (the dashboard price is {eur(grandCents)}, without shipping). If it does not match to the cent, nothing is recorded: change the margin above until it does.</p>
+      <label className="flex items-center gap-2"><span className="text-ink-2">€</span><input aria-label="Total the client agreed, euros" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder={(grandCents / 100).toFixed(2)} className="h-9 w-40 rounded-md border border-line bg-surface px-2 text-right text-[13px]" /></label>
+      <label className="block"><span className="mb-1 block text-ink-2">Note or Gmail link of their reply (optional)</span><input aria-label="Note about their reply" value={note} onChange={(e) => setNote(e.target.value)} className="h-9 w-full rounded-md border border-line bg-surface px-2 text-[13px]" /></label>
+      <label className="flex items-start gap-2"><input type="checkbox" checked={tick} onChange={(e) => setTick(e.target.checked)} /><span>The client accepted this by email at this total.</span></label>
+      {msg && <p role={msg.ok ? 'status' : 'alert'} className={msg.ok ? 'text-gain' : 'text-loss'} data-testid="manual-accept-msg">{msg.text}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" variant="primary" disabled={busy || cents === null || !tick} onClick={go} data-testid="manual-accept-go">{busy ? 'Recording…' : 'Record as accepted'}</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </div>
   )
 }
