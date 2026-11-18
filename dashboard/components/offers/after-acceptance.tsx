@@ -90,6 +90,7 @@ export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offe
               <p data-testid="shipping-done">
                 {sh.source === 'none' ? 'No shipping on this order.' : <>{eur(sh.cents)} charged{sh.mobileOneCents != null ? ` (Mobile One ${eur(sh.mobileOneCents)} × ${mult})` : own ? ' (our own DHL cost, no mark-up)' : ''}.</>}
                 {sh.source === 'email' && ' Read from the offer email.'}
+                {sh.source === 'invoice' && " Read from Mobile One's invoice."}
               </p>
             ) : d.state === 'waiting' ? (
               <div className="space-y-1.5" data-testid="shipping-waiting">

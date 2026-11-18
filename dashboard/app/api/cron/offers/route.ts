@@ -4,6 +4,8 @@ import { getMessage, gmailConfig, gmailConnected, hasReplied, listMessageIds } f
 import { sweepFulfilment } from '@/lib/offers/fulfil'
 import { fulfilDeps, fulfilThenAuto, invoiceDeps } from '@/lib/offers/fulfil-server'
 import { sweepAuto } from '@/lib/offers/auto-invoice'
+import { readInvoicePdf } from '@/lib/offers/invoice-read'
+import { sweepShipping } from '@/lib/offers/shipping-auto'
 import { ingestOffers } from '@/lib/offers/ingest'
 import { publicStoreConfigured } from '@/lib/offers/public-store'
 import { ownerEmail } from '@/lib/offers/owner-email'
@@ -31,14 +33,16 @@ async function run(req: Request) {
   }
   // Then what follows an acceptance: replies and draft invoices still pending or failed.
   const fulfilled = await sweepFulfilment(fulfilDeps(store)).catch(() => null)
+  // Orders waiting for their shipping: take it from Mobile One's invoice when it is there and agrees with the offer.
+  const shipped = await sweepShipping(invoiceDeps(store), (bytes) => readInvoicePdf(bytes)).catch(() => null)
   // Then the invoices that go out by themselves: schedule the newly ready ones, run the ones now due.
   const autoInvoiced = await sweepAuto(invoiceDeps(store)).catch(() => null)
   const c = gmailConfig()
-  if (!c) return NextResponse.json({ ok: true, skipped: 'Gmail is not set up', swept, fulfilled, autoInvoiced })
+  if (!c) return NextResponse.json({ ok: true, skipped: 'Gmail is not set up', swept, fulfilled, shipped, autoInvoiced })
   const g = await gmailConnected(store)
   if (!g.connected || !g.canRead) {
     await store.set('offers:status', { lastRunAt: new Date().toISOString(), ok: false, checked: 0, added: 0, error: g.connected ? 'Gmail is connected send-only: connect it again in Settings to read offers' : (g.message ?? 'Gmail is not connected') })
-    return NextResponse.json({ ok: false, skipped: 'Gmail cannot read mail yet', swept, fulfilled, autoInvoiced })
+    return NextResponse.json({ ok: false, skipped: 'Gmail cannot read mail yet', swept, fulfilled, shipped, autoInvoiced })
   }
   try {
     const r = await ingestOffers({
@@ -50,7 +54,7 @@ async function run(req: Request) {
       notify,
       dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''),
     })
-    return NextResponse.json({ ok: r.errors.length === 0, checked: r.checked, added: r.added.length, skipped: r.skipped, errors: r.errors.length, swept, fulfilled, autoInvoiced })
+    return NextResponse.json({ ok: r.errors.length === 0, checked: r.checked, added: r.added.length, skipped: r.skipped, errors: r.errors.length, swept, fulfilled, shipped, autoInvoiced })
   } catch (e) {
     const message = e instanceof Error ? e.message.slice(0, 200) : 'Offer check failed'
     await store.set('offers:status', { lastRunAt: new Date().toISOString(), ok: false, checked: 0, added: 0, error: message })

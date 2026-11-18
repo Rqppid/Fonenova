@@ -24,7 +24,7 @@ export interface OfferLine {
  */
 export interface OfferShipping {
   mobileOneCents: number | null
-  source: 'email' | 'manual' | 'none'
+  source: 'email' | 'manual' | 'none' | 'invoice'
   /** The line of the email it was read from, for the review screen. */
   sourceText: string | null
 }
@@ -202,6 +202,8 @@ export interface Fulfilment {
   shipping?: OrderShipping
   /** When the owner was last reminded that the shipping is still missing. */
   shippingRemindedAt?: string
+  /** Invoice PDFs already read for the shipping (so none is read twice), and why the last one did not fill it in. */
+  shippingAuto?: { tried: string[]; note?: string }
 }
 
 export interface OrderShipping {
@@ -209,8 +211,8 @@ export interface OrderShipping {
   cents: number
   /** Mobile One's own shipping behind it, when the client is charged a multiple of it. */
   mobileOneCents?: number
-  /** email = Mobile One's offer email stated it; manual = typed by the owner; none = the owner confirmed there is none. */
-  source: 'email' | 'manual' | 'none'
+  /** email = Mobile One's offer email stated it; manual = typed by the owner; none = the owner confirmed there is none; invoice = read from Mobile One's invoice. */
+  source: 'email' | 'manual' | 'none' | 'invoice'
   at: string
 }
 

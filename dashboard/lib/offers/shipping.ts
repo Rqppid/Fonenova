@@ -18,7 +18,7 @@ export const MAX_SHIPPING_CENTS = 10_000_000
 
 export interface ShippingResult { ok: boolean; message: string }
 
-export async function setOrderShipping(offerId: string, d: FulfilDeps, input: { cents: number | null; none: boolean }): Promise<ShippingResult> {
+export async function setOrderShipping(offerId: string, d: FulfilDeps, input: { cents: number | null; none: boolean; source?: 'manual' | 'invoice' }): Promise<ShippingResult> {
   const at = (d.now ?? new Date()).toISOString()
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment
@@ -37,7 +37,7 @@ export async function setOrderShipping(offerId: string, d: FulfilDeps, input: { 
   const saved = await mutate(d.store, offerId, (o: Offer) => {
     const cur = o.fulfilment
     if (!cur || cur.draft.state !== 'waiting') return null // someone else got there first
-    return { ...o, updatedAt: at, fulfilment: { ...cur, shipping: { cents: charge, ...(basis === 'mobile_one' && !input.none ? { mobileOneCents: typed } : {}), source: input.none ? 'none' : 'manual', at }, draft: { ...cur.draft, state: 'pending', attempts: 0, reason: undefined } }, audit: log(o, at, input.none ? 'Shipping: none, you confirmed' : `Shipping entered: ${eur(charge)} (${how})`) }
+    return { ...o, updatedAt: at, fulfilment: { ...cur, shipping: { cents: charge, ...(basis === 'mobile_one' && !input.none ? { mobileOneCents: typed } : {}), source: input.none ? 'none' : (input.source ?? 'manual'), at }, draft: { ...cur.draft, state: 'pending', attempts: 0, reason: undefined } }, audit: log(o, at, input.none ? 'Shipping: none, you confirmed' : `Shipping entered: ${eur(charge)} (${how})`) }
   })
   if (!saved) return { ok: false, message: 'The shipping was already set, or the draft moved on. Refresh the offer.' }
   // Raise the draft now, with the shipping line in place.
