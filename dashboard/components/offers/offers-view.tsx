@@ -7,6 +7,7 @@ import { AutoRefresh } from '@/components/dashboard/auto-refresh'
 import { PricePanel } from '@/components/offers/price-panel'
 import { SendPanel, type SendSetup } from '@/components/offers/send-panel'
 import type { Client } from '@/lib/offers/clients'
+import { whyNotDeletable } from '@/lib/offers/deletable'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
 import { offerCostCents, offerFlags, offerUnits } from '@/lib/offers/check'
@@ -169,6 +170,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
   const router = useRouter()
   const [rows, setRows] = useState<Draft[]>(() => offer.lines.map(toDraft))
   const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Mobile One's shipping for the whole offer: read from the email or typed here, never assumed.
   const [shipText, setShipText] = useState(offer.shipping?.source === 'none' || offer.shipping?.mobileOneCents == null ? '' : (offer.shipping.mobileOneCents / 100).toFixed(2))
@@ -265,6 +267,9 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>}
         {offer.testOnly && !offer.archived && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'archive_test', id: offer.id })} data-testid="clear-test-button">Remove this test offer from the list</Button>}
         {offer.status === 'dismissed' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Restore</Button>}
+        {whyNotDeletable(offer) === null && (confirmDelete
+          ? <span className="flex flex-wrap items-center gap-2 rounded-md border border-loss/30 bg-loss-soft px-2 py-1 text-[13px] text-loss" data-testid="delete-confirm">Delete this offer for good? <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'delete_offer', id: offer.id, confirm: true })} data-testid="delete-yes">Yes, delete</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</Button></span>
+          : <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)} data-testid="delete-offer-button">Delete this offer</Button>)}
       </div>
       {offer.status === 'ready' && <PricePanel key={offer.updatedAt} offer={offer} clients={clients} />}
       {(offer.status === 'ready' || offer.status === 'sent' || offer.status === 'accepted' || offer.status === 'declined' || offer.status === 'expired') && <SendPanel key={`${offer.updatedAt}-send`} offer={offer} clients={clients} setup={send} />}
