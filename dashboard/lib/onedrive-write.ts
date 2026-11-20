@@ -108,18 +108,19 @@ function graphFailure(status: number, what: string): WriteResult<never> {
 
 interface Item { id: string; eTag?: string; size?: number; lastModifiedDateTime?: string; file?: unknown }
 
-async function infoWith(g: Extract<Ready, { kind: 'ready' }>, p: string): Promise<WriteResult<FileInfo & { id: string | null }>> {
+async function infoWith(g: Extract<Ready, { kind: 'ready' }>, p: string, opts: { maxBytes?: number } = {}): Promise<WriteResult<FileInfo & { id: string | null; bytes: Uint8Array | null }>> {
   const res = await g.call(`${itemUrl(p)}?$select=id,eTag,size,lastModifiedDateTime,file`)
-  if (res.status === 404) return { kind: 'ok', data: { path: p, exists: false, sha256: null, etag: null, last_modified: null, size: null, id: null } }
+  if (res.status === 404) return { kind: 'ok', data: { path: p, exists: false, sha256: null, etag: null, last_modified: null, size: null, id: null, bytes: null } }
   if (!res.ok) return graphFailure(res.status, 'looking up the file')
   const item = (await res.json()) as Item
   if (!item.file) return { kind: 'bad', message: 'path is a folder, not a file' }
+  if (opts.maxBytes !== undefined && (item.size ?? 0) > opts.maxBytes) return { kind: 'bad', message: `the file is too large (${Math.round(opts.maxBytes / 1024 / 1024)} MB at most)` }
   if ((item.size ?? 0) > MAX_DOWNLOAD_BYTES) return { kind: 'error', message: 'the file on OneDrive is too large to be a tracker' }
   // Personal OneDrive no longer reports sha256, so the file is read and hashed here.
   const body = await g.call(`/me/drive/items/${encodeURIComponent(item.id)}/content`)
   if (!body.ok) return graphFailure(body.status, 'downloading the file')
   const bytes = new Uint8Array(await body.arrayBuffer())
-  return { kind: 'ok', data: { path: p, exists: true, sha256: sha256(bytes), etag: item.eTag ?? null, last_modified: item.lastModifiedDateTime ?? null, size: item.size ?? bytes.length, id: item.id } }
+  return { kind: 'ok', data: { path: p, exists: true, sha256: sha256(bytes), etag: item.eTag ?? null, last_modified: item.lastModifiedDateTime ?? null, size: item.size ?? bytes.length, id: item.id, bytes } }
 }
 
 export async function fileInfo(p: string, store: Store = getStore()): Promise<WriteResult<FileInfo>> {
@@ -127,8 +128,23 @@ export async function fileInfo(p: string, store: Store = getStore()): Promise<Wr
   if (g.kind !== 'ready') return g
   const r = await infoWith(g, p)
   if (r.kind !== 'ok') return r
-  const { id: _id, ...info } = r.data
+  const { id: _id, bytes: _bytes, ...info } = r.data
   return { kind: 'ok', data: info }
+}
+
+/**
+ * Read-only: the file's bytes, for the payments service to compare contents (Excel re-saves a tracker when it is
+ * opened, which changes the hash with identical content). Same allowlist and the same 4 MB cap as a write; nothing
+ * is changed or deleted. Null `bytes` means the file does not exist. The hash is the one `fileInfo` reports.
+ */
+export async function fileContent(p: string, store: Store = getStore()): Promise<WriteResult<{ exists: boolean; bytes: Uint8Array | null; sha256: string | null; etag: string | null; last_modified: string | null }>> {
+  const g = await connect(store, false)
+  if (g.kind !== 'ready') return g
+  const r = await infoWith(g, p, { maxBytes: MAX_UPLOAD_BYTES })
+  if (r.kind !== 'ok') return r
+  // Path and size only: never the contents.
+  console.log(JSON.stringify({ event: 'onedrive-read', at: new Date().toISOString(), path: p, exists: r.data.exists, size: r.data.size }))
+  return { kind: 'ok', data: { exists: r.data.exists, bytes: r.data.bytes, sha256: r.data.sha256, etag: r.data.etag, last_modified: r.data.last_modified } }
 }
 
 /** Plain checks on an upload, before anything is sent anywhere. */

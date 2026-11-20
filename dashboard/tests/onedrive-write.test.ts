@@ -147,6 +147,52 @@ describe('OneDrive tracker routes: reading', () => {
   })
 })
 
+describe('OneDrive tracker routes: reading the bytes', () => {
+  it('returns the exact bytes with the hash, etag and date as headers, and never changes anything', async () => {
+    const { file } = await routes()
+    const r = await file.GET(req(`/api/onedrive/file?path=${q(WAVE)}&content=1`))
+    expect(r.status).toBe(200)
+    expect(r.headers.get('content-type')).toBe('application/octet-stream')
+    expect(r.headers.get('cache-control')).toBe('no-store')
+    expect(r.headers.get('x-sha256')).toBe(sha(xlsx('wave v1')))
+    expect(r.headers.get('etag')).toBe('"w1"')
+    expect(r.headers.get('last-modified')).toBe('Tue, 10 Nov 2026 10:00:00 GMT')
+    expect(Buffer.from(await r.arrayBuffer()).equals(xlsx('wave v1'))).toBe(true)
+    expect(requests.every((x) => x.method === 'GET')).toBe(true)
+    // the plain request is unchanged
+    expect((await (await file.GET(req(`/api/onedrive/file?path=${q(WAVE)}`))).json()).sha256).toBe(sha(xlsx('wave v1')))
+  })
+  it('uses the same bearer token and allowlist, and says 404 for a file that is not there', async () => {
+    const { file } = await routes()
+    expect((await file.GET(req(`/api/onedrive/file?path=${q(WAVE)}&content=1`, { auth: 'wrong' }))).status).toBe(401)
+    expect((await file.GET(req(`/api/onedrive/file?path=${q(LEDGER)}&content=1`))).status).toBe(400)
+    expect((await file.GET(req(`/api/onedrive/file?path=${q('Desktop/Other.xlsx')}&content=1`))).status).toBe(400)
+    const missing = await file.GET(req(`/api/onedrive/file?path=${q(M1)}&content=1`))
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ path: M1, exists: false })
+  })
+  it('refuses a file over 4 MB without downloading it, and works read-only', async () => {
+    drive.set(WAVE, { id: 'wave', bytes: Buffer.concat([xlsx('x'), Buffer.alloc(4 * 1024 * 1024)]), etag: '"w2"' })
+    const { file } = await routes()
+    const big = await file.GET(req(`/api/onedrive/file?path=${q(WAVE)}&content=1`))
+    expect(big.status).toBe(400)
+    expect(requests.some((x) => x.url.includes('/content'))).toBe(false)
+    drive.set(WAVE, { id: 'wave', bytes: xlsx('wave v1'), etag: '"w1"' })
+    await tokens('Files.Read offline_access')
+    expect((await file.GET(req(`/api/onedrive/file?path=${q(WAVE)}&content=1`))).status).toBe(200)
+  })
+  it('logs the path and size but never the contents', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    drive.set(WAVE, { id: 'wave', bytes: xlsx('SECRET-CONTENT'), etag: '"w9"' })
+    const { file } = await routes()
+    await file.GET(req(`/api/onedrive/file?path=${q(WAVE)}&content=1`))
+    const lines = log.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(lines).toContain('onedrive-read')
+    expect(lines).not.toContain('SECRET-CONTENT')
+    log.mockRestore()
+  })
+})
+
 describe('OneDrive tracker routes: writing', () => {
   const put = async (p: string, expected: string, body: Buffer) => (await routes()).file.PUT(req(`/api/onedrive/file?path=${q(p)}&expected_sha256=${expected}`, { method: 'PUT', body, headers: { 'content-type': 'application/octet-stream' } }))
 
