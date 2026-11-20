@@ -416,6 +416,16 @@ export function xeroWriteApi(store: Store = getStore()): XeroApi {
       const rows = ((await iRes.json()) as { Invoices?: (RawInvoice & { DateString?: string; Reference?: string })[] }).Invoices ?? []
       return { hasAddress, recent: rows.map((r) => ({ number: String(r.InvoiceNumber ?? ''), date: String(r.DateString ?? '').slice(0, 10), status: String(r.Status ?? ''), reference: String(r.Reference ?? '') })) }
     },
+    async contactAddress(contactId: string) {
+      const cRes = await call(`/Contacts/${encodeURIComponent(contactId)}`)
+      check(cRes, 'reading the contact')
+      const addrs = ((await cRes.json()) as { Contacts?: { Addresses?: Record<string, unknown>[] }[] }).Contacts?.[0]?.Addresses ?? []
+      const s = (a: Record<string, unknown>, k: string) => (typeof a[k] === 'string' ? (a[k] as string).trim() : '')
+      const filled = (a: Record<string, unknown>) => ['AddressLine1', 'City', 'PostalCode'].some((k) => s(a, k) !== '')
+      const a = addrs.find((x) => x.AddressType === 'STREET' && filled(x)) ?? addrs.find(filled)
+      if (!a) return null
+      return { lines: ['AddressLine1', 'AddressLine2', 'AddressLine3', 'AddressLine4'].map((k) => s(a, k)).filter(Boolean), city: s(a, 'City'), postalCode: s(a, 'PostalCode'), country: s(a, 'Country') }
+    },
     async brandingThemes() {
       const res = await call('/BrandingThemes')
       check(res, 'listing branding themes')

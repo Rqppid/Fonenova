@@ -9,6 +9,8 @@ import { fulfilDeps, fulfilThenAuto, invoiceDeps } from '@/lib/offers/fulfil-ser
 import { holdAuto, resumeAuto, scheduleAuto } from '@/lib/offers/auto-invoice'
 import { archiveTestOffers } from '@/lib/offers/test-archive'
 import { setOrderShipping } from '@/lib/offers/shipping'
+import { quoteOrderShipping, setOrigin } from '@/lib/offers/dhl'
+import { dhlDeps } from '@/lib/offers/dhl-server'
 import { acceptByEmail } from '@/lib/offers/manual-accept'
 import { deleteOffer } from '@/lib/offers/delete'
 import { deletePublicOffer, publicStoreConfigured } from '@/lib/offers/public-store'
@@ -60,6 +62,15 @@ export async function PUT(req: Request) {
   if (e.action === 'accept_manual') {
     const r = await acceptByEmail(e.id, { ...fulfilDeps(store), fulfil: (id) => fulfilThenAuto(id, store) }, { totalCents: e.totalCents, note: e.note, confirm: e.confirm })
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'dhl_origin_set') {
+    const r = await setOrigin(store, e.origin)
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 400)
+  }
+  if (e.action === 'dhl_quote') {
+    // Read-only: prices a parcel and returns the options. Nothing is saved and no invoice is made here.
+    const r = await quoteOrderShipping(e.id, dhlDeps(store), e.parcel)
+    return r.ok ? json({ ok: true, message: r.message, quotes: r.quotes }) : json({ error: r.message, ...(r.needsOrigin ? { needsOrigin: true } : {}) }, 409)
   }
   if (e.action === 'shipping_set') {
     const r = await setOrderShipping(e.id, fulfilDeps(store), { cents: e.cents, none: e.none })

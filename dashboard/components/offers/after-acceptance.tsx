@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CircleAlert, CircleCheck, Clock, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DhlPrice } from '@/components/offers/dhl-price'
 import { InvoiceSteps, type InvoiceSetup } from '@/components/offers/invoice-steps'
 import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import { xeroDraftUrl } from '@/lib/offers/xero-url'
@@ -95,6 +96,7 @@ export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offe
             ) : d.state === 'waiting' ? (
               <div className="space-y-1.5" data-testid="shipping-waiting">
                 <p>{own ? 'This client pays our own DHL cost with no mark-up. Enter it once the label is made.' : `Enter Mobile One's shipping from their invoice. The client is charged it × ${mult}.`}</p>
+                {own && <DhlPrice offerId={offer.id} onPick={(c) => setShipText((c / 100).toFixed(2))} />}
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-1.5"><span className="text-ink-2">€</span><input aria-label={own ? 'Our DHL cost, euros' : "Mobile One's shipping, euros"} inputMode="decimal" value={shipText} onChange={(e) => setShipText(e.target.value)} placeholder="e.g. 120.00" className="h-9 w-32 rounded-md border border-line bg-surface px-2 text-right text-[13px]" /></label>
                   <Button size="sm" variant="primary" disabled={busy || shipCents === null} onClick={() => act('shipping_set', { cents: shipCents })} data-testid="shipping-save">{busy ? 'Saving…' : 'Make the draft invoice'}</Button>
