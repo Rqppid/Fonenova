@@ -21,7 +21,7 @@ export default async function PaymentsPage() {
     <Shell email={user}>
       <AutoRefresh />
       <TopBar title="Payments" subtitle="Customer payments and payments to Mobile One, matched to invoices from the Revolut EUR account." status={null} />
-      <PaymentsView result={result} totals={totals} />
+      <PaymentsView result={result} totals={totals} now={new Date()} />
     </Shell>
   )
 }
