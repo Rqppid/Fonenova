@@ -29,7 +29,7 @@ describe('finished test offers are tucked away', () => {
   it('hides an answered test offer by default but keeps open test offers and real ones', () => {
     const html = view([open, done, real])
     expect(html.match(/data-testid="offer-item"/g)).toHaveLength(2)
-    expect(html).toContain('Real offer from Mobile One')
+    expect(html).toContain('Accepted')
     expect(html).toContain('Show finished test offers (1)')
   })
   it('shows nothing extra when there are no finished test offers', () => {

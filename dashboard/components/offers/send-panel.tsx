@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Send } from 'lucide-react'
 import { AfterAcceptance } from '@/components/offers/after-acceptance'
+import { ManualAnswerPanel } from '@/components/offers/manual-send-panel'
 import type { InvoiceSetup } from '@/components/offers/invoice-steps'
 import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import type { InvoiceMatch } from '@/lib/offers/order-note'
@@ -83,6 +84,8 @@ export function SendPanel({ offer, clients, setup }: { offer: Offer; clients: Cl
     </details>
   )
   const errorBox = error && <p role="alert" className="rounded-md border border-loss/30 bg-loss-soft px-3 py-2 text-[13px] text-loss">{error}</p>
+
+  if (offer.status === 'sent' && current?.tokenHint === 'manual') return <ManualAnswerPanel offer={offer} send={current} />
 
   if (offer.status === 'sent') {
     return (

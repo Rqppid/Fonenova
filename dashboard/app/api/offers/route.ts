@@ -11,6 +11,7 @@ import { archiveTestOffers } from '@/lib/offers/test-archive'
 import { setOrderShipping } from '@/lib/offers/shipping'
 import { acceptByEmail } from '@/lib/offers/manual-accept'
 import { deleteOffer } from '@/lib/offers/delete'
+import { answerManualSend, markSentManually, undoManualSend } from '@/lib/offers/manual-send'
 import { linkInvoice2go, updateOrderNotes } from '@/lib/offers/invoice2go'
 import { loadSnapshot } from '@/lib/xero/client'
 import { deletePublicOffer, publicStoreConfigured } from '@/lib/offers/public-store'
@@ -52,6 +53,13 @@ export async function PUT(req: Request) {
       : await confirmBill(e.id, e.billId, d)
     // Re-checking can clear what blocked an automatic invoice (an address added, the right Xero organisation chosen).
     if (e.action === 'draft_recheck' && r.ok) await scheduleAuto(e.id, d).catch(() => {})
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'sent_manual' || e.action === 'manual_answer' || e.action === 'manual_undo') {
+    const d = fulfilDeps(store)
+    const r = e.action === 'sent_manual' ? await markSentManually(e.id, d, { totalCents: e.totalCents, sentAt: e.sentAt, note: e.note })
+      : e.action === 'manual_undo' ? await undoManualSend(e.id, d)
+      : await answerManualSend(e.id, { ...d, fulfil: (id) => fulfilThenAuto(id, store) }, { decision: e.decision, note: e.note })
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
   if (e.action === 'order_update') {

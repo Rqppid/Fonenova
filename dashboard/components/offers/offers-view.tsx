@@ -8,6 +8,8 @@ import { PricePanel } from '@/components/offers/price-panel'
 import { SendPanel, type SendSetup } from '@/components/offers/send-panel'
 import type { Client } from '@/lib/offers/clients'
 import { whyNotDeletable } from '@/lib/offers/deletable'
+import { offerLabel } from '@/lib/offers/label'
+import { ManualSentPanel } from '@/components/offers/manual-send-panel'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
 import { offerCostCents, offerFlags, offerUnits } from '@/lib/offers/check'
@@ -25,6 +27,9 @@ const STATUS: Record<OfferStatus, { label: string; tone: 'warn' | 'gain' | 'neut
   declined: { label: 'Declined', tone: 'neutral' },
   expired: { label: 'Expired', tone: 'neutral' },
 }
+
+/** The badge text: a manually emailed offer says so. */
+const statusLabel = (o: Offer) => (o.status === 'sent' && (o.sends ?? []).some((x) => x.outcome === 'pending' && x.tokenHint === 'manual') ? 'Sent by email' : STATUS[o.status].label)
 
 interface Setup {
   gmail: { connected: boolean; email: string | null; canRead: boolean; message?: string | null } | null
@@ -116,11 +121,11 @@ export function OffersView({ offers, status, setup, selected, clients, send, liv
                 <li key={o.id}>
                   <button type="button" onClick={() => setOpenId(o.id)} className={cn('w-full px-4 py-3 text-left hover:bg-subtle', o.id === openId && 'bg-subtle')} data-testid="offer-item">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13.5px] font-medium text-ink">{o.testOnly && <span className="mr-1.5 rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-semibold text-warn" data-testid="test-badge">TEST</span>}{o.source.subject || '(no subject)'}</span>
-                      <Badge tone={STATUS[o.status].tone}>{STATUS[o.status].label}</Badge>
+                      <span className="truncate text-[13.5px] font-medium text-ink">{o.testOnly && <span className="mr-1.5 rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-semibold text-warn" data-testid="test-badge">TEST</span>}{offerLabel(o, clients.find((c) => c.id === o.pricing?.clientId)?.name).title}</span>
+                      <Badge tone={STATUS[o.status].tone}>{statusLabel(o)}</Badge>
                     </div>
                     <div className="mt-0.5 text-[12.5px] text-ink-2">
-                      {when(o.source.receivedAt)} · {o.lines.length} line{o.lines.length === 1 ? '' : 's'} · {offerUnits(o.lines)} units · {eur(offerCostCents(o.lines))}
+                      {when(o.source.receivedAt)} · {o.lines.length} line{o.lines.length === 1 ? '' : 's'} · {offerUnits(o.lines)} units · {eur(offerCostCents(o.lines))}{o.fulfilment?.orderRef ? ` · ${o.fulfilment.orderRef}` : ''}
                     </div>
                     {o.pricing && <div className="mt-0.5 text-[12.5px] font-medium text-gain">Priced for {clients.find((c) => c.id === o.pricing!.clientId)?.name ?? 'a client'}</div>}
                     {flagged > 0 && <div className="mt-0.5 flex items-center gap-1 text-[12.5px] text-loss"><AlertTriangle className="h-3.5 w-3.5" aria-hidden />{flagged} line{flagged === 1 ? '' : 's'} to check</div>}
@@ -171,6 +176,8 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
   const [rows, setRows] = useState<Draft[]>(() => offer.lines.map(toDraft))
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [showManual, setShowManual] = useState(false)
+  const label = offerLabel(offer, clients.find((c) => c.id === offer.pricing?.clientId)?.name)
   const [error, setError] = useState<string | null>(null)
   // Mobile One's shipping for the whole offer: read from the email or typed here, never assumed.
   const [shipText, setShipText] = useState(offer.shipping?.source === 'none' || offer.shipping?.mobileOneCents == null ? '' : (offer.shipping.mobileOneCents / 100).toFixed(2))
@@ -203,10 +210,11 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
       <a href="#offers-list" className="inline-flex h-10 items-center text-[13.5px] font-medium text-accent lg:hidden" data-testid="back-to-list">← All offers</a>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 id="offer-title" className="text-[16px] font-semibold text-ink">{offer.source.subject || '(no subject)'}</h2>
-          <p className="text-[12.5px] text-ink-2">From {offer.source.from} · to {offer.source.to} · {when(offer.source.receivedAt)}</p>
+          <h2 id="offer-title" className="text-[16px] font-semibold text-ink">{label.title}</h2>
+          <p className="text-[12.5px] text-ink-2" data-testid="offer-label-detail">{label.detail}</p>
+          <p className="text-[12.5px] text-ink-3">{offer.source.subject || '(no subject)'} · From {offer.source.from} · to {offer.source.to} · {when(offer.source.receivedAt)}</p>
         </div>
-        <Badge tone={STATUS[offer.status].tone}>{STATUS[offer.status].label}</Badge>
+        <Badge tone={STATUS[offer.status].tone}>{statusLabel(offer)}</Badge>
       </div>
       {offer.testOnly && <p className="rounded-md border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] text-warn" data-testid="test-banner">TEST OFFER. Made here for testing, not from Mobile One. It can only be priced for and sent to the test client, never a real client.</p>}
 
@@ -266,11 +274,13 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         {offer.status === 'ready' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Back to review</Button>}
         {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'dismissed' })}>Not an offer</Button>}
         {offer.testOnly && !offer.archived && <Button size="sm" variant="ghost" disabled={busy} onClick={() => put({ action: 'archive_test', id: offer.id })} data-testid="clear-test-button">Remove this test offer from the list</Button>}
+        {(offer.status === 'needs_review' || offer.status === 'ready') && <Button size="sm" variant="outline" disabled={busy} onClick={() => setShowManual(!showManual)} data-testid="manual-sent-button">Offer sent manually by email</Button>}
         {offer.status === 'dismissed' && <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'status', id: offer.id, status: 'needs_review' })}>Restore</Button>}
         {whyNotDeletable(offer) === null && (confirmDelete
           ? <span className="flex flex-wrap items-center gap-2 rounded-md border border-loss/30 bg-loss-soft px-2 py-1 text-[13px] text-loss" data-testid="delete-confirm">Delete this offer for good? <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'delete_offer', id: offer.id, confirm: true })} data-testid="delete-yes">Yes, delete</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</Button></span>
           : <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)} data-testid="delete-offer-button">Delete this offer</Button>)}
       </div>
+      {showManual && (offer.status === 'needs_review' || offer.status === 'ready') && <ManualSentPanel offer={offer} client={offer.pricing ? clients.find((c) => c.id === offer.pricing!.clientId) ?? null : null} />}
       {offer.status === 'ready' && <PricePanel key={offer.updatedAt} offer={offer} clients={clients} />}
       {(offer.status === 'ready' || offer.status === 'sent' || offer.status === 'accepted' || offer.status === 'declined' || offer.status === 'expired') && <SendPanel key={`${offer.updatedAt}-send`} offer={offer} clients={clients} setup={send} />}
 

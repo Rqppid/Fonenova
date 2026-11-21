@@ -168,7 +168,8 @@ export async function sweepSends(d: ResolveDeps): Promise<{ answered: number; ex
   const out = { answered: 0, expired: 0, rolledBack: 0 }
   for (const o of offers) {
     if (o.status !== 'sent') continue
-    for (const s of (o.sends ?? []).filter((x) => x.outcome === 'pending')) {
+    // A manual send (emailed by hand) has no public page and no deadline: only a person records its answer.
+    for (const s of (o.sends ?? []).filter((x) => x.outcome === 'pending' && x.tokenHint !== 'manual')) {
       if (!s.gmailMessageId && now.getTime() - Date.parse(s.sentAt) > 10 * 60_000) {
         // Reserved but never confirmed: the send did not complete, so nothing reached the client.
         const back = await update(d.store, s.tokenHash, (cur, cs) => (cs.outcome === 'pending' && !cs.gmailMessageId ? { ...cur, status: 'ready', sends: cur.sends!.filter((x) => x.tokenHash !== s.tokenHash), updatedAt: nowIso, audit: log(cur, nowIso, `The send to ${s.clientName} did not complete and was rolled back`) } : null))
