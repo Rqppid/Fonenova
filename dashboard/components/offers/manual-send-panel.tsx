@@ -55,6 +55,36 @@ export function ManualSentPanel({ offer, client }: { offer: Offer; client: Clien
   )
 }
 
+/** A sent email that looks like this offer was emailed to a client by hand. A suggestion: nothing changes until you confirm. */
+export function SentGuessBanner({ offer, others }: { offer: Offer; others?: string[] }) {
+  const router = useRouter()
+  const g = offer.sentGuess
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  if (!g) return null
+  async function go(action: 'sent_guess_confirm' | 'sent_guess_dismiss') {
+    setBusy(true)
+    setMsg(null)
+    const r = await put({ action, id: offer.id })
+    setBusy(false)
+    setMsg({ ok: r.ok, text: r.message })
+    if (r.ok) router.refresh()
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-accent/30 bg-subtle p-3 text-[13px]" data-testid="sent-guess">
+      <p className="font-medium text-ink">Looks like you emailed this to {g.clientName} on {ukTime(g.sentAt)} for {eur(g.totalCents)}.</p>
+      <p className="text-ink-2">Found in your Sent mail ({g.units} units, margin {eur(g.marginCents)} per unit{Object.keys(g.overrides).length ? `, ${Object.keys(g.overrides).length} line${Object.keys(g.overrides).length === 1 ? '' : 's'} differ` : ''}). Confirming prices it that way and marks it sent. Nothing is emailed.</p>
+      {g.ambiguousWith && g.ambiguousWith.length > 0 && <p className="text-warn" data-testid="sent-guess-ambiguous">This email matches {g.ambiguousWith.length + 1} similar offers{others && others.length ? ` (${others.join(', ')})` : ''}. Confirm it on the one it was for; the others will stop suggesting it.</p>}
+      {offer.status === 'needs_review' && <p className="text-warn">Mark the offer reviewed first, then confirm.</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="primary" disabled={busy || offer.status !== 'ready'} onClick={() => go('sent_guess_confirm')} data-testid="sent-guess-confirm">Yes, record it as sent</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => go('sent_guess_dismiss')} data-testid="sent-guess-dismiss">No, not this offer</Button>
+      </div>
+      {msg && <p role={msg.ok ? 'status' : 'alert'} className={msg.ok ? 'text-gain' : 'text-loss'}>{msg.text}</p>}
+    </div>
+  )
+}
+
 /** A manually sent offer is waiting for the client's reply by email. */
 export function ManualAnswerPanel({ offer, send }: { offer: Offer; send: OfferSend }) {
   const router = useRouter()

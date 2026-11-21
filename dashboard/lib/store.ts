@@ -35,6 +35,7 @@ export type StoreKey =
   | 'meta:expenses-archive'
   | 'offers'
   | 'offers:seen'
+  | 'offers:sent-seen'
   | 'offers:status'
   | 'offers:clients'
   | 'xero-write:tokens'
@@ -81,6 +82,7 @@ const FILES: Record<StoreKey, string> = {
   'meta:expenses-archive': 'generated/expenses-archive.meta.json',
   offers: 'offers/offers.json',
   'offers:seen': 'offers/seen.json',
+  'offers:sent-seen': 'offers/sent-seen.json',
   'offers:status': 'offers/status.json',
   'offers:clients': 'offers/clients.json',
   'xero-write:tokens': 'xero/write-tokens.json',

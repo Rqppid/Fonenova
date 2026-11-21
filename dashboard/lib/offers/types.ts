@@ -254,6 +254,10 @@ export interface Offer {
   fulfilment?: Fulfilment
   /** A test offer the owner cleared away. It stays on file (its order reference is never reused) but is out of the list. Never set on a real offer. */
   archived?: boolean
+  /** A sent email that looks like this offer going to a client by hand. A suggestion only: nothing changes until the owner confirms it. */
+  sentGuess?: SentGuess
+  /** Gmail messages the owner said are not this offer, so they are not suggested again. */
+  sentGuessDismissed?: string[]
   createdAt: string
   updatedAt: string
   audit: { at: string; what: string }[]
@@ -272,4 +276,21 @@ export interface LineFlag {
   code: 'model' | 'storage' | 'qty' | 'cost' | 'duplicate' | 'source' | 'note'
   level: FlagLevel
   message: string
+}
+
+export interface SentGuess {
+  messageId: string
+  clientId: string
+  clientName: string
+  to: string
+  sentAt: string
+  /** Items total in the email (what the client was quoted), in cents. */
+  totalCents: number
+  units: number
+  /** The margin per unit that most lines carry, and the lines that differ (by line id). */
+  marginCents: number
+  overrides: Record<string, number>
+  /** Other offers the same email matches: it cannot tell them apart, so the owner picks. */
+  ambiguousWith?: string[]
+  foundAt: string
 }
