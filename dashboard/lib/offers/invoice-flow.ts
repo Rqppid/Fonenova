@@ -16,6 +16,7 @@ import type { XeroInvoice, XeroPair } from '../types'
 import type { Client } from './clients'
 import { clientsFrom } from './clients'
 import { xeroDraftUrl } from './xero-url'
+import { INVOICE2GO_NOTE, invoicingOn } from './invoicing-mode'
 import { type FulfilDeps, load, log, mutate } from './fulfil'
 import { figuresOrWhy } from './resolve'
 import { pdfPathFor, type FilingDirs } from './filing-paths'
@@ -72,6 +73,7 @@ type Ready = { ok: true; offer: Offer; f: Fulfilment; client: Client; api: NonNu
 
 /** What approving, sending and filing all need first: the draft, the client, and the organisation it was made in. */
 async function ready(d: InvoiceDeps, offerId: string): Promise<Ready> {
+  if (!invoicingOn(d)) return { ok: false, message: INVOICE2GO_NOTE }
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment
   if (!offer || offer.status !== 'accepted' || !f) return { ok: false, message: 'This offer has not been accepted.' }
@@ -110,6 +112,7 @@ export function suggestBills(o: Pick<Offer, 'lines' | 'shipping'>, bills: readon
 }
 
 export async function confirmBill(offerId: string, billId: string, d: InvoiceDeps): Promise<ActionResult> {
+  if (!invoicingOn(d)) return { ok: false, message: INVOICE2GO_NOTE }
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment
   if (!offer || !f || offer.status !== 'accepted') return { ok: false, message: 'This offer has not been accepted.' }

@@ -12,6 +12,7 @@ import { ukTime } from '../format-uk'
 import { getJson, type Store } from '../store'
 import { loadDraftSettings, raiseDraft, type XeroApi } from './draft'
 import { emailAddress } from './clean'
+import { INVOICE2GO_NOTE, invoicingOn } from './invoicing-mode'
 import { chargeFor, clientsFrom, shippingBasisOf, type Client } from './clients'
 import { nextOrderRef } from './numbering'
 import { figuresFor, figuresOrWhy } from './resolve'
@@ -32,6 +33,8 @@ export interface FulfilDeps {
   knownOrderIds: () => Promise<string[]>
   /** XERO_WRITE_ALLOW_LIVE: drafts in a live Xero organisation. A separate switch from allowReal. */
   allowLiveXero?: boolean
+  /** False while Invoice2go makes the invoices (OFFERS_INVOICING): no draft, no approve, no send, no automatic invoice. Unset means on, for the dormant path's tests; the production builder always sets it. */
+  invoicing?: boolean
   /** The Xero write connection, or null when it is not set up. */
   xero: () => XeroApi | null
   /** Sends one email from the connected Gmail. Throws when it cannot. */
@@ -157,6 +160,15 @@ async function runReply(id: string, d: FulfilDeps, approved = false): Promise<vo
 
 async function runDraft(id: string, d: FulfilDeps): Promise<void> {
   const nowIso = nowOf(d).toISOString()
+  // Invoice2go makes the invoices: no Xero call, no draft, no invoice number. A draft that already exists is left as it is.
+  if (!invoicingOn(d)) {
+    await mutate(d.store, id, (o) => {
+      const f = o.fulfilment
+      if (!f || f.draft.state === 'done' || f.draft.state === 'off') return null
+      return { ...o, updatedAt: nowIso, fulfilment: { ...f, draft: { state: 'off', attempts: 0, at: nowIso, reason: INVOICE2GO_NOTE } }, audit: log(o, nowIso, 'No draft invoice: invoices are made in Invoice2go for now') }
+    })
+    return
+  }
   const claimed = await mutate(d.store, id, (o) => {
     const f = o.fulfilment
     if (!f || o.status !== 'accepted') return null
@@ -217,6 +229,7 @@ async function runDraft(id: string, d: FulfilDeps): Promise<void> {
 
 function summary(o: Offer): string {
   const f = o.fulfilment!
+  if (f.draft.state === 'off') return `${f.test ? '[TEST] ' : ''}${f.orderRef}: ${f.reply.state === 'sent' ? (f.test ? 'test reply sent to your inbox' : 'Mobile One is told to proceed') : f.reply.state === 'held' ? 'the reply to Mobile One is waiting for your OK' : 'the reply to Mobile One is on its way'}. ${INVOICE2GO_NOTE}`
   const reply = { sent: f.test ? 'test reply sent to your inbox' : 'replied to Mobile One', held: 'reply to Mobile One is waiting for your OK', failed: 'reply to Mobile One failed (retrying)', pending: 'reply pending', sending: 'reply sending' }[f.reply.state]
   const draft = f.draft.state === 'done' ? `invoice ${f.draft.invoiceNumber} is ready to check and approve (draft in Xero${f.draft.org ? `, ${f.draft.org}` : ''}; nothing approved or sent)` : f.draft.state === 'blocked' ? `draft invoice is blocked: ${f.draft.reason}` : f.draft.state === 'failed' ? 'draft invoice failed (retrying)' : f.draft.state === 'waiting' ? 'the invoice is waiting for the shipping cost' : 'draft invoice pending'
   return `${f.test ? '[TEST] ' : ''}${f.orderRef}: ${reply}; ${draft}.`
@@ -281,7 +294,7 @@ export async function sweepFulfilment(d: FulfilDeps): Promise<{ tried: number; c
     const f = o.fulfilment
     if (!f || o.status !== 'accepted') continue
     // Waiting for the shipping cost: nothing to retry, but do not let it sit unnoticed.
-    if (f.draft.state === 'waiting') {
+    if (f.draft.state === 'waiting' && invoicingOn(d)) {
       const ms = (x?: string) => (x ? Date.parse(x) || 0 : 0)
       if (nowOf(d).getTime() - Math.max(ms(f.draft.at), ms(f.shippingRemindedAt)) > 24 * 3_600_000) {
         const at = nowOf(d).toISOString()
@@ -292,6 +305,8 @@ export async function sweepFulfilment(d: FulfilDeps): Promise<{ tried: number; c
     const stale = (at?: string) => nowOf(d).getTime() - Date.parse(at ?? '') > STALE_MS
     const replyWork = f.reply.state === 'pending' || (f.reply.state === 'failed' && f.reply.attempts < MAX_ATTEMPTS) || (f.reply.state === 'sending' && stale(f.reply.at))
     const draftWork = f.draft.state === 'pending' || (f.draft.state === 'failed' && f.draft.attempts < MAX_ATTEMPTS) || (f.draft.state === 'working' && stale(f.draft.at))
+      // Invoice2go mode: a draft step that is not done is closed as 'off' (once), so nothing waits for a draft that will not be made.
+      || (!invoicingOn(d) && f.draft.state !== 'done' && f.draft.state !== 'off')
     if (!replyWork && !draftWork) continue
     out.tried++
     if (replyWork) await runReply(o.id, d)

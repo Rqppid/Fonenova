@@ -234,7 +234,7 @@ describe('4. the tenant guard: a draft only ever goes to the selected organisati
   })
 })
 
-describe('3b. the test client stays in the Demo Company unless a live test contact is mapped', () => {
+describe('3b. the test client stays in the Demo Company', () => {
   function mem(): Store {
     const data = new Map<string, unknown>()
     return { name: 'mem', async get(k: StoreKey) { return data.has(k) ? { kind: 'ok' as const, value: data.get(k) } : { kind: 'missing' as const } }, async set(k: StoreKey, v: unknown) { data.set(k, v) }, async del(k: StoreKey) { data.delete(k) }, async withLock<T>(_n: string, fn: () => Promise<T>) { return fn() } }
@@ -251,19 +251,14 @@ describe('3b. the test client stays in the Demo Company unless a live test conta
   }
   const testClient = { ...seedClients()[2], xeroContactId: '11111111-2222-3333-4444-555555555555' }
   const run = (x: ReturnType<typeof fake>, client: typeof testClient & { liveTestContactId?: string | null }, test = true) => raiseDraft({ api: x.api, store: mem(), reference: 'TEST-001', client, test, lines: [{ description: 'x', qty: 1, unitSaleCents: 100 }], settings: DEFAULT_DRAFT_SETTINGS, now: new Date('2026-11-15T10:00:00Z'), allowLive: true })
-  it('refused in a live organisation without a live test contact: nothing created', async () => {
-    const x = fake(false)
-    const r = await run(x, testClient)
-    expect(r).toMatchObject({ ok: false, retry: false })
-    expect((r as { error: string }).error).toContain('live test contact')
-    expect(x.bodies).toHaveLength(0)
-  })
-  it('with a live test contact mapped it goes to the live organisation using THAT contact, never the demo contact', async () => {
-    const x = fake(false)
-    const LIVE_CONTACT = '99999999-aaaa-bbbb-cccc-ddddeeeeffff'
-    const r = await run(x, { ...testClient, liveTestContactId: LIVE_CONTACT })
-    expect(r).toMatchObject({ ok: true, number: '2026048' })
-    expect(x.bodies[0].Contact.ContactID).toBe(LIVE_CONTACT)
+  it('a test offer is refused in a live organisation, whatever contact is mapped: nothing created', async () => {
+    for (const client of [testClient, { ...testClient, liveTestContactId: '99999999-aaaa-bbbb-cccc-ddddeeeeffff' }]) {
+      const x = fake(false)
+      const r = await run(x, client)
+      expect(r).toMatchObject({ ok: false, retry: false })
+      expect((r as { error: string }).error).toContain('never create anything in the live organisation')
+      expect(x.bodies).toHaveLength(0)
+    }
   })
   it('in the Demo Company it uses the demo contact, whatever is mapped for live', async () => {
     const x = fake(true)

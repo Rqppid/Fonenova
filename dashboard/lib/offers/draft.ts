@@ -199,9 +199,9 @@ export async function raiseDraft(a: { api: XeroApi; store: Store; reference: str
     const org = await a.api.organisation()
     // The guard: test offers touch only a demo organisation (unless a live test contact is mapped for the test client), real offers only the live one.
     const settings = { ...a.settings, brandingThemeId: themeFor(a.settings, org) }
-    const liveTest = a.test && !org.isDemo
-    if (liveTest && !a.client.liveTestContactId) return fail(`Test offers only go to the Xero Demo Company, and the selected organisation (${org.name}) is not a demo. A test offer can use a live organisation only when a live test contact is mapped for the test client (Offers, Clients). Nothing was created.`)
-    const contactId = liveTest ? a.client.liveTestContactId! : a.client.xeroContactId
+    // A test offer never touches the live organisation, whatever contacts are mapped.
+    if (a.test && !org.isDemo) return fail(`Test offers only go to the Xero Demo Company, and the selected organisation (${org.name}) is not a demo. Tests never create anything in the live organisation. Nothing was created.`)
+    const contactId = a.client.xeroContactId
     if (!contactId) return fail(`${a.client.name} has no Xero ContactID yet. Add it on the Clients screen.`)
     if (!org.isDemo && !a.allowLive) return fail(`The connected Xero organisation (${org.name}) is a live one, and drafts in a live organisation are switched off. They need their own step: set XERO_WRITE_ALLOW_LIVE=true in Vercel. This is separate from sending offers to real clients. Nothing was created.`)
     if (!a.test && org.isDemo) return fail(`Real offers may not create drafts in a demo organisation (${org.name}). Connect the live Xero organisation. Nothing was created.`)

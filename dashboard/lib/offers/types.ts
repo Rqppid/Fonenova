@@ -111,7 +111,7 @@ export interface ReplyStep {
 }
 export interface DraftStep {
   /** working = being raised right now; blocked = a rule or setting needs the owner (no automatic retry). */
-  state: 'pending' | 'working' | 'done' | 'failed' | 'blocked' | 'waiting'
+  state: 'pending' | 'working' | 'done' | 'failed' | 'blocked' | 'waiting' | 'off'
   reason?: string
   attempts: number
   at?: string
@@ -204,6 +204,17 @@ export interface Fulfilment {
   shippingRemindedAt?: string
   /** Invoice PDFs already read for the shipping (so none is read twice), and why the last one did not fill it in. */
   shippingAuto?: { tried: string[]; note?: string }
+  /** Hand-kept notes while Invoice2go makes the invoices: nothing here creates an invoice. */
+  order?: OrderNotes
+}
+
+export interface OrderNotes {
+  /** When the owner ticked that the goods arrived in Belfast. */
+  goodsArrivedAt?: string
+  /** Our own DHL cost, in cents (a note, to work out the amount for Invoice2go). */
+  dhlCostCents?: number
+  /** The Invoice2go invoice this order became, and the synced Xero invoice it matched when there was one. */
+  invoice2go?: { number: string; xeroInvoiceId?: string; linkedAt: string }
 }
 
 export interface OrderShipping {
