@@ -9,6 +9,7 @@ import { parseEuro } from '@/lib/deal'
 import { eur } from '@/lib/format'
 import { formatDate } from '@/lib/periods'
 import { trackerList, type ExceptionItem, type Invoice, type PaymentsResult, type PaymentsState, type Suggestion } from '@/lib/payments-types'
+import { agoWords, monthTotals, newestPaymentDate, paymentFeed, staleness, type FeedRow } from '@/lib/payments-summary'
 import { cn } from '@/lib/utils'
 
 export type PartyTotal = { party: string; remainingCents: number; openCents: number; favourCents: number; open: number }
@@ -35,13 +36,18 @@ function Remaining({ inv }: { inv: Pick<Invoice, 'remaining_cents' | 'credits_ce
 // Whole page
 // ---------------------------------------------------------------------------
 
-export function PaymentsView({ result, totals }: { result: PaymentsResult<PaymentsState>; totals: { customers: PartyTotal[]; supplier: PartyTotal[] } | null }) {
+export function PaymentsView({ result, totals, now = new Date() }: { result: PaymentsResult<PaymentsState>; totals: { customers: PartyTotal[]; supplier: PartyTotal[] } | null; now?: Date }) {
   if (result.kind === 'not-configured') return <NotConfigured />
   if (result.kind !== 'ok' || !totals) return <ServiceError message={result.kind === 'error' ? result.message : result.kind === 'refused' ? result.error : 'Unknown problem'} />
   const s = result.data
+  const feed = paymentFeed(s)
+  const newest = newestPaymentDate(feed)
+  const month = monthTotals(feed, now)
   return (
     <div className="space-y-4">
-      <Freshness state={s} />
+      <Freshness state={s} newestPayment={newest} now={now} />
+      <SummaryTiles month={month} owedToUs={totals.customers} owedToM1={totals.supplier} now={now} />
+      <RecentPayments rows={feed} />
       <Exceptions items={s.exceptions} customerInvoices={s.customer_invoices} supplierInvoices={s.supplier_invoices} />
       <InvoiceGroups title="Customers" subtitle="What each customer still owes. Click an invoice to see each payment." invoices={s.customer_invoices} totals={totals.customers} owingWord="owes you" />
       <InvoiceGroups title="Mobile One" subtitle="What you still owe Mobile One, per bill. Click a bill to see each payment and credit." invoices={s.supplier_invoices} totals={totals.supplier} owingWord="you owe" />
@@ -76,19 +82,119 @@ export function ServiceError({ message }: { message: string }) {
   )
 }
 
-/** How fresh the matching is. Never hides stale data: it says so, in words. */
-export function Freshness({ state }: { state: Pick<PaymentsState, 'health' | 'generated_at'> }) {
+/** How fresh the data is. Never hides stale data: it says so in words, with what it means for the payments shown. */
+export function Freshness({ state, newestPayment = null, now = new Date() }: { state: Pick<PaymentsState, 'health' | 'generated_at'>; newestPayment?: string | null; now?: Date }) {
   const h = state.health
-  const stale = !h.ok || h.minutes_ago === null || h.minutes_ago > 30
-  const ago = h.minutes_ago === null ? 'never' : h.minutes_ago < 1 ? 'just now' : h.minutes_ago < 90 ? `${h.minutes_ago} minute${h.minutes_ago === 1 ? '' : 's'} ago` : `${Math.round(h.minutes_ago / 60)} hours ago`
+  const level = staleness(h)
+  const stale = level !== 'fresh'
+  const ago = agoWords(h.minutes_ago)
+  const asOf = new Date(state.generated_at).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  const newestDay = newestPayment ? formatDate(newestPayment) : null
+  void now
   return (
-    <section aria-label="Payments data status" data-stale={stale} className={cn('flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border px-4 py-3 text-[13.5px]', stale ? 'border-warn/40 bg-warn-soft' : 'border-line bg-surface')}>
-      {stale ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden /> : <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-gain" aria-hidden />}
+    <section aria-label="Payments data status" data-stale={stale} data-level={level} className={cn('flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border px-4 py-3 text-[13.5px]', level === 'old' ? 'border-loss/40 bg-loss-soft' : level === 'late' ? 'border-warn/40 bg-warn-soft' : 'border-line bg-surface')}>
+      {stale ? <AlertTriangle className={cn('mt-0.5 h-4 w-4 shrink-0', level === 'old' ? 'text-loss' : 'text-warn')} aria-hidden /> : <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-gain" aria-hidden />}
       <div className="min-w-0 flex-1">
-        <p className={cn('font-medium', stale ? 'text-warn' : 'text-ink')}>{stale ? 'Possibly out of date: ' : ''}Bank matching updated {ago}</p>
+        <p className={cn('font-medium', level === 'old' ? 'text-loss' : stale ? 'text-warn' : 'text-ink')}>{stale ? 'Possibly out of date: ' : ''}Bank matching updated {ago}</p>
+        <p className="text-[12.5px] text-ink-2" data-testid="data-as-of">Data as of {asOf}.{newestDay ? ` Newest payment shown: ${newestDay}.` : ' No payments shown yet.'}</p>
+        {stale && <p className="text-[12.5px] text-ink-2" data-testid="stale-meaning">{newestDay ? `Payments after ${newestDay} may not be shown yet.` : 'Payments may be missing.'} The page cannot see the bank directly: it shows what the payments service has matched.</p>}
         {h.last_error && <p className="text-[12.5px] text-ink-2">Details: <span className="break-all">{h.last_error}</span></p>}
-        <p className="text-[12.5px] text-ink-2">Revolut EUR account, matched by the payments service. Data as of {new Date(state.generated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.</p>
       </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Summary tiles and the recent payments feed
+// ---------------------------------------------------------------------------
+
+function Tile({ label, value, note, testId }: { label: string; value: string; note: string; testId: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-surface px-4 py-3" data-testid={testId}>
+      <p className="text-[12.5px] text-ink-2">{label}</p>
+      <p className="mt-0.5 text-[22px] font-semibold leading-tight tabular-nums text-ink">{value}</p>
+      <p className="mt-0.5 text-[12px] text-ink-3">{note}</p>
+    </div>
+  )
+}
+
+const monthName = (key: string) => new Date(`${key}-15T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+/** What is owed comes straight from the service's balances; the two monthly figures are the payments listed below. */
+export function SummaryTiles({ month, owedToUs, owedToM1, now = new Date() }: { month: ReturnType<typeof monthTotals>; owedToUs: PartyTotal[]; owedToM1: PartyTotal[]; now?: Date }) {
+  void now
+  const sum = (t: PartyTotal[]) => t.reduce((n, x) => n + x.remainingCents, 0)
+  const open = (t: PartyTotal[]) => t.reduce((n, x) => n + x.open, 0)
+  const m = monthName(month.monthKey)
+  return (
+    <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="summary-tiles">
+      <Tile testId="tile-received" label={`Received in ${m}`} value={eur(month.receivedCents)} note={`${month.receivedCount} payment${month.receivedCount === 1 ? '' : 's'} from customers, listed below`} />
+      <Tile testId="tile-paid" label={`Paid to Mobile One in ${m}`} value={eur(month.paidOutCents)} note={`${month.paidOutCount} payment${month.paidOutCount === 1 ? '' : 's'}, listed below`} />
+      <Tile testId="tile-owed-to-us" label="Customers still owe you" value={eur(sum(owedToUs))} note={`${open(owedToUs)} open invoice${open(owedToUs) === 1 ? '' : 's'} (net)`} />
+      <Tile testId="tile-owed-m1" label="You still owe Mobile One" value={eur(sum(owedToM1))} note={`${open(owedToM1)} open bill${open(owedToM1) === 1 ? '' : 's'} (net)`} />
+    </section>
+  )
+}
+
+type Filter = 'all' | 'in' | 'out'
+const PAGE = 25
+
+export function RecentPayments({ rows }: { rows: FeedRow[] }) {
+  const [filter, setFilter] = useState<Filter>('all')
+  const [shown, setShown] = useState(PAGE)
+  const [open, setOpen] = useState<Invoice | null>(null)
+  const list = rows.filter((r) => filter === 'all' || r.direction === filter)
+  const sign = (r: FeedRow) => (r.direction === 'in' ? '+' : '−')
+  const left = (r: FeedRow) => (r.invoice ? <Remaining inv={r.invoice} /> : <span className="text-ink-3">not applied yet</span>)
+  return (
+    <section aria-labelledby="recent" className="rounded-lg border border-line bg-surface" data-testid="recent-payments">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
+        <div>
+          <h2 id="recent" className="text-[15px] font-semibold text-ink">Recent payments</h2>
+          <p className="mt-0.5 text-[13px] text-ink-2">Every payment in and out, newest first, with the invoice it was applied to and what is left on it.</p>
+        </div>
+        <div role="group" aria-label="Show" className="flex gap-1 text-[13px]">
+          {(['all', 'in', 'out'] as const).map((f) => (
+            <button key={f} type="button" aria-pressed={filter === f} onClick={() => { setFilter(f); setShown(PAGE) }} className={cn('h-8 rounded-md border px-3 font-medium', filter === f ? 'border-navy bg-navy text-white' : 'border-line text-ink-2 hover:bg-subtle')} data-testid={`filter-${f}`}>{f === 'all' ? 'All' : f === 'in' ? 'Money in' : 'Money out'}</button>
+          ))}
+        </div>
+      </div>
+      {list.length === 0 ? <p className="px-5 py-6 text-center text-[13.5px] text-ink-2">No payments to show.</p> : (<>
+        {/* Phone: one card per payment. */}
+        <ul className="divide-y divide-line px-5 sm:hidden">
+          {list.slice(0, shown).map((r) => (
+            <li key={r.key} className="py-2.5" data-testid="feed-row">
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0"><span className="block text-[13px] text-ink-3">{day(r.date)}</span><span className="block font-medium text-ink">{r.party}</span></span>
+                <span className={cn('text-right text-[15px] font-semibold tabular-nums', r.direction === 'in' ? 'text-gain' : 'text-ink')}>{sign(r)}{eur(Math.abs(r.amountCents))}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-ink-2">
+                {r.invoice ? <button type="button" className="font-medium text-accent" onClick={() => setOpen(r.invoice)}>Invoice {r.invoice.number}</button> : <a className="font-medium text-warn" href="#pay-attn">Needs attention</a>}
+                <span>Left: {left(r)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto px-2 pb-2 sm:block">
+          <table className="w-full min-w-[720px] text-[13.5px]">
+            <thead className="text-left text-[12px] text-ink-3"><tr><th className="px-3 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Who</th><th className="px-3 py-2 text-right font-medium">Amount</th><th className="px-3 py-2 font-medium">Applied to</th><th className="px-3 py-2 text-right font-medium">Left on it</th><th className="px-3 py-2 font-medium">How</th></tr></thead>
+            <tbody>
+              {list.slice(0, shown).map((r) => (
+                <tr key={r.key} className="border-t border-line align-top" data-testid="feed-row">
+                  <td className="whitespace-nowrap px-3 py-2 text-ink-2">{day(r.date)}</td>
+                  <td className="px-3 py-2"><span className="block text-ink">{r.party}</span><span className="block text-[12px] text-ink-3">{r.direction === 'in' ? 'Money in' : 'Money out'}{r.creditNote ? ' · credit note' : ''}</span></td>
+                  <td className={cn('whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums', r.direction === 'in' ? 'text-gain' : 'text-ink')}>{sign(r)}{eur(Math.abs(r.amountCents))}{r.feeCents ? <span className="block text-[12px] font-normal text-ink-3">fee {eur(r.feeCents)}</span> : null}</td>
+                  <td className="px-3 py-2">{r.invoice ? <button type="button" className="font-medium text-accent hover:underline" onClick={() => setOpen(r.invoice)}>{r.invoice.number}</button> : <a className="font-medium text-warn hover:underline" href="#pay-attn">Not matched yet</a>}</td>
+                  <td className="px-3 py-2 text-right">{left(r)}</td>
+                  <td className="px-3 py-2 text-[12.5px] text-ink-2">{r.matched ? (SOURCE[r.source] ?? r.source) : (r.remark ?? 'Needs attention')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {list.length > shown && <div className="border-t border-line px-5 py-3"><Button size="sm" variant="outline" onClick={() => setShown(shown + PAGE)} data-testid="show-more">Show more ({list.length - shown} older)</Button></div>}
+      </>)}
+      <InvoiceDrawer invoice={open} onClose={() => setOpen(null)} />
     </section>
   )
 }
