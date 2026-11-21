@@ -29,6 +29,9 @@ export type OfferEdit =
   | { action: 'accept_manual'; id: string; totalCents: number; note: string; confirm: boolean }
   | { action: 'archive_test'; id: string }
   | { action: 'delete_offer'; id: string; confirm: boolean }
+  | { action: 'sent_manual'; id: string; totalCents: number; sentAt: string | null; note: string }
+  | { action: 'manual_answer'; id: string; decision: 'accept' | 'decline'; note: string }
+  | { action: 'manual_undo'; id: string }
   | { action: 'order_update'; id: string; goodsArrived?: boolean; dhlCostCents?: number | null }
   | { action: 'invoice2go_link'; id: string; number: string; xeroInvoiceId: string | null }
   | { action: 'archive_all_tests' }
@@ -78,6 +81,15 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     if (typeof b.number !== 'string' || !/^\d{7}$/.test(b.number.trim())) return { ok: false, error: 'An Invoice2go number is seven digits, like 2026049' }
     return { ok: true, value: { action: 'invoice2go_link', id, number: b.number.trim(), xeroInvoiceId: typeof b.xeroInvoiceId === 'string' && b.xeroInvoiceId ? b.xeroInvoiceId.slice(0, 80) : null } }
   }
+  if (b.action === 'sent_manual') {
+    if (typeof b.totalCents !== 'number' || !Number.isSafeInteger(b.totalCents) || b.totalCents < 1 || b.totalCents > 1_000_000_000) return { ok: false, error: 'Enter the total you sent' }
+    return { ok: true, value: { action: 'sent_manual', id, totalCents: b.totalCents, sentAt: typeof b.sentAt === 'string' && b.sentAt ? b.sentAt.slice(0, 40) : null, note: typeof b.note === 'string' ? b.note.slice(0, 400) : '' } }
+  }
+  if (b.action === 'manual_answer') {
+    if (b.decision !== 'accept' && b.decision !== 'decline') return { ok: false, error: 'decision must be accept or decline' }
+    return { ok: true, value: { action: 'manual_answer', id, decision: b.decision, note: typeof b.note === 'string' ? b.note.slice(0, 400) : '' } }
+  }
+  if (b.action === 'manual_undo') return { ok: true, value: { action: 'manual_undo', id } }
   if (b.action === 'delete_offer') return { ok: true, value: { action: 'delete_offer', id, confirm: b.confirm === true } }
   if (b.action === 'archive_test' || b.action === 'auto_hold' || b.action === 'auto_resume') return { ok: true, value: { action: b.action, id } }
   if (b.action === 'imei_clear') return { ok: true, value: { action: 'imei_clear', id } }
@@ -115,7 +127,7 @@ export function checkEdit(body: unknown): Checked<OfferEdit> {
     if (sc !== null && (typeof sc !== 'number' || !Number.isSafeInteger(sc))) return { ok: false, error: "The client's shipping must be a whole number of cents" }
     return { ok: true, value: { action: 'price', id, input: { clientId, marginCents: margin as number | null, overrides, ackLow: b.ackLow === true, shippingCents: sc as number | null } } }
   }
-  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry, create_test, shipping_set, accept_manual, delete_offer, order_update, invoice2go_link, archive_test, archive_all_tests, invoice_approve, invoice_send, invoice_file, draft_recheck, bill_confirm, auto_hold, auto_resume, imei_find, imei_attach, imei_clear or imei_send' }
+  if (b.action !== 'save') return { ok: false, error: 'action must be save, status, price, unprice, send, withdraw, unlock, reply_ok, fulfil_retry, create_test, shipping_set, accept_manual, delete_offer, sent_manual, manual_answer, manual_undo, order_update, invoice2go_link, archive_test, archive_all_tests, invoice_approve, invoice_send, invoice_file, draft_recheck, bill_confirm, auto_hold, auto_resume, imei_find, imei_attach, imei_clear or imei_send' }
   if (!Array.isArray(b.lines) || b.lines.length > 100) return { ok: false, error: 'lines must be a list of at most 100' }
   const lines: OfferLine[] = []
   for (const [i, raw] of (b.lines as unknown[]).entries()) {
@@ -154,7 +166,7 @@ export function applyEdit(o: Offer, e: OfferEdit, now: string, clients: readonly
   if (o.status === 'sent' || o.status === 'accepted' || o.status === 'declined' || o.status === 'expired') {
     return { error: o.status === 'sent' ? 'This offer has been sent. Withdraw it to change it.' : o.status === 'accepted' ? 'This offer was accepted, so it can no longer be changed.' : 'This offer was answered or expired. Unlock it to reprice it.' }
   }
-  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test' || e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm' || e.action === 'shipping_set' || e.action === 'accept_manual' || e.action === 'delete_offer' || e.action === 'order_update' || e.action === 'invoice2go_link' || e.action === 'archive_test' || e.action === 'archive_all_tests' || e.action === 'auto_hold' || e.action === 'auto_resume' || e.action === 'imei_find' || e.action === 'imei_attach' || e.action === 'imei_clear' || e.action === 'imei_send') return { error: 'That action is handled separately' }
+  if (e.action === 'send' || e.action === 'withdraw' || e.action === 'unlock' || e.action === 'reply_ok' || e.action === 'fulfil_retry' || e.action === 'create_test' || e.action === 'invoice_approve' || e.action === 'invoice_send' || e.action === 'invoice_file' || e.action === 'draft_recheck' || e.action === 'bill_confirm' || e.action === 'shipping_set' || e.action === 'accept_manual' || e.action === 'delete_offer' || e.action === 'sent_manual' || e.action === 'manual_answer' || e.action === 'manual_undo' || e.action === 'order_update' || e.action === 'invoice2go_link' || e.action === 'archive_test' || e.action === 'archive_all_tests' || e.action === 'auto_hold' || e.action === 'auto_resume' || e.action === 'imei_find' || e.action === 'imei_attach' || e.action === 'imei_clear' || e.action === 'imei_send') return { error: 'That action is handled separately' }
   if (e.action === 'unprice') {
     if (!o.pricing) return { error: 'This offer is not priced' }
     const { pricing: _p, ...rest } = o
