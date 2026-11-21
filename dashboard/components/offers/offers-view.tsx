@@ -9,6 +9,7 @@ import { SendPanel, type SendSetup } from '@/components/offers/send-panel'
 import type { Client } from '@/lib/offers/clients'
 import { whyNotDeletable } from '@/lib/offers/deletable'
 import { offerLabel } from '@/lib/offers/label'
+import { nextStep } from '@/lib/offers/next-step'
 import { ManualSentPanel, SentGuessBanner } from '@/components/offers/manual-send-panel'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
@@ -216,6 +217,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
         </div>
         <Badge tone={STATUS[offer.status].tone}>{statusLabel(offer)}</Badge>
       </div>
+      <p className="rounded-md border border-accent/30 bg-subtle px-3 py-2 text-[13px] text-ink" data-testid="next-step"><strong>Next:</strong> {nextStep(offer, offer.pricing ? clients.find((c) => c.id === offer.pricing!.clientId) ?? null : null, send.invoice?.invoicing !== false)}</p>
       {offer.testOnly && <p className="rounded-md border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] text-warn" data-testid="test-banner">TEST OFFER. Made here for testing, not from Mobile One. It can only be priced for and sent to the test client, never a real client.</p>}
 
       <div className="overflow-x-auto">
