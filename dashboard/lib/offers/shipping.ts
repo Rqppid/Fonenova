@@ -9,6 +9,7 @@
  * through the same code as before; the caller then schedules the automatic invoice.
  */
 import { getJson } from '../store'
+import { invoicingOn } from './invoicing-mode'
 import { chargeFor, clientsFrom, shippingBasisOf, type Client } from './clients'
 import { load, log, mutate, retryFulfilment, type FulfilDeps } from './fulfil'
 import type { Offer } from './types'
@@ -19,6 +20,7 @@ export const MAX_SHIPPING_CENTS = 10_000_000
 export interface ShippingResult { ok: boolean; message: string }
 
 export async function setOrderShipping(offerId: string, d: FulfilDeps, input: { cents: number | null; none: boolean; source?: 'manual' | 'invoice' }): Promise<ShippingResult> {
+  if (!invoicingOn(d)) return { ok: false, message: 'No draft invoice is made while Invoice2go makes the invoices. Enter the DHL cost in the order checklist instead.' }
   const at = (d.now ?? new Date()).toISOString()
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment

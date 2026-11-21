@@ -12,6 +12,7 @@
  * where a file is saved, never the file. Sending is at most once and has the same gates as sending
  * the invoice: a test is only ever sent in the Demo Company, a real client needs live Xero and real sending on.
  */
+import { INVOICE2GO_NOTE, invoicingOn } from './invoicing-mode'
 import { gmailThreadIdFrom, type MailFile, type ThreadMessage } from '../gmail'
 import { type FulfilDeps, load, log, mutate } from './fulfil'
 import type { ActionResult, InvoiceDeps } from './invoice-flow'
@@ -71,6 +72,7 @@ async function locate(d: ImeiDeps, offerId: string, pasted?: string): Promise<Lo
 
 /** Step 1: look. Returns the files found; nothing is saved. */
 export async function findImeiFiles(offerId: string, d: ImeiDeps, opts: { thread?: string } = {}): Promise<ActionResult & { threadId?: string; candidates?: ImeiCandidate[] }> {
+  if (!invoicingOn(d)) return { ok: false, message: `The IMEI feature is off while Invoice2go makes the invoices. ${INVOICE2GO_NOTE}` }
   const r = await locate(d, offerId, opts.thread)
   if (!r.ok) return r
   // Only the IMEI lists are ever offered: a label, an invoice or any other file in the thread is not sent to a client.
@@ -81,6 +83,7 @@ export async function findImeiFiles(offerId: string, d: ImeiDeps, opts: { thread
 
 /** Step 2: keep the ones picked. The server looks the thread up again, so only a real file of that thread can be saved. */
 export async function attachImeiFiles(offerId: string, d: ImeiDeps, input: { thread: string; picks: { messageId: string; partId: string }[] }): Promise<ActionResult> {
+  if (!invoicingOn(d)) return { ok: false, message: `The IMEI feature is off while Invoice2go makes the invoices. ${INVOICE2GO_NOTE}` }
   const r = await locate(d, offerId, input.thread)
   if (!r.ok) return r
   const f = r.offer.fulfilment!
@@ -146,6 +149,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * If the invoice went by Xero's own email there is no thread of ours, so it is a new email instead.
  */
 export async function sendImeiFollowUp(offerId: string, d: ImeiDeps, opts: { confirm: boolean }): Promise<ActionResult> {
+  if (!invoicingOn(d)) return { ok: false, message: `The IMEI feature is off while Invoice2go makes the invoices. ${INVOICE2GO_NOTE}` }
   if (!opts.confirm) return { ok: false, message: 'Sending needs your confirmation: tick the box first.' }
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment

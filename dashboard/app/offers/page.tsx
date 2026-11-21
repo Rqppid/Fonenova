@@ -11,6 +11,8 @@ import { filingDirs } from '@/lib/onedrive-invoice'
 import { loadSnapshot } from '@/lib/xero/client'
 import { loadXeroPairs } from '@/lib/data-source'
 import { suggestBills } from '@/lib/offers/invoice-flow'
+import { acceptedItemsCents, invoiceAmount, suggestInvoices } from '@/lib/offers/order-note'
+import { invoicingModeFromEnv } from '@/lib/offers/invoicing-mode'
 import { xeroWriteStatus } from '@/lib/xero/write'
 import { publicStoreProblem } from '@/lib/offers/public-store'
 import { telegramConfigured } from '@/lib/offers/telegram'
@@ -36,18 +38,31 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
   const [snap, pairs] = await Promise.all([loadSnapshot().catch(() => null), loadXeroPairs().catch(() => [])])
   const bills = (snap?.invoices ?? []).filter((i) => i.kind === 'bill')
   const billSuggestions = Object.fromEntries((offers ?? []).filter((o) => o.status === 'accepted' && o.fulfilment?.draft.state === 'done' && !o.fulfilment.bill && /^FN-ORD-\d{3,}$/.test(o.fulfilment.orderRef)).map((o) => [o.id, suggestBills(o, bills, pairs)]))
+  // While Invoice2go makes the invoices: the synced Xero sales invoices that could be each accepted order's (read only).
+  const invoicing = invoicingModeFromEnv() === 'dashboard'
+  const saleInvoices = (snap?.invoices ?? []).filter((i) => i.kind === 'sale')
+  const taken = (offers ?? []).flatMap((o) => (o.fulfilment?.order?.invoice2go ? [o.fulfilment.order.invoice2go.number] : []))
+  const invoiceMatches = invoicing ? {} : Object.fromEntries((offers ?? []).filter((o) => o.status === 'accepted' && o.fulfilment && !o.fulfilment.order?.invoice2go).map((o) => {
+    const client = clients.find((c) => c.id === o.pricing?.clientId)
+    const items = acceptedItemsCents(o)
+    const dhl = o.fulfilment?.order?.dhlCostCents ?? null
+    const expected = client && items !== null && dhl !== null ? invoiceAmount(items, client, dhl).totalCents : null
+    return [o.id, client ? suggestInvoices(o, client, expected, saleInvoices, taken) : []]
+  }))
   return (
     <Shell email={user}>
       <TopBar title="Offers" subtitle="Mobile One's offers, read from your email. Check each one before it is priced for a client." status={null} />
       <OffersTabs active="offers" />
+      {!invoicing && <p className="mb-3 rounded-md border border-line bg-subtle px-3 py-2 text-[13px] text-ink-2" data-testid="invoice2go-page-note">Invoices are made in Invoice2go for now, and their numbers come from Invoice2go (check it for the next number). The dashboard does offers, acceptance and the reply to Mobile One only.</p>}
       <OffersView
         liveTarget={xw.connected && xw.isDemo === false ? xw.orgName : null}
         clients={clients}
         send={{
           allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
           liveXeroReady: await liveXeroReady(store),
-          invoice: { allowApprove: process.env.OFFERS_ALLOW_APPROVE === 'true', allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', allowLiveXero: process.env.XERO_WRITE_ALLOW_LIVE === 'true', filingConfigured: !!filingDirs(), orgIsLive: xw.isDemo === null ? null : !xw.isDemo },
+          invoice: { allowApprove: process.env.OFFERS_ALLOW_APPROVE === 'true', allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true', allowLiveXero: process.env.XERO_WRITE_ALLOW_LIVE === 'true', filingConfigured: !!filingDirs(), orgIsLive: xw.isDemo === null ? null : !xw.isDemo, invoicing },
           bills: billSuggestions,
+          invoiceMatches,
           storeProblem: publicStoreProblem(),
           gmailProblem: !gmail ? 'Gmail is not set up on the dashboard (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).' : gmail.connected ? null : gmail.message,
           webhookWarning: !envValue(process.env.OFFERS_WEBHOOK_TOKEN) ? 'OFFERS_WEBHOOK_TOKEN is not set: you will hear of answers within 5 minutes instead of at once.' : webhookProblem(process.env.OFFERS_WEBHOOK_TOKEN),

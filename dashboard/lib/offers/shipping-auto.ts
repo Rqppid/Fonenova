@@ -12,6 +12,7 @@ import { clientsFrom, shippingBasisOf, type Client } from './clients'
 import { load, log, mutate } from './fulfil'
 import type { InvoiceDeps } from './invoice-flow'
 import { setOrderShipping } from './shipping'
+import { invoicingOn } from './invoicing-mode'
 import { checkInvoice, type InvoiceReading } from './shipping-check'
 import { candidatesIn } from './imei'
 import type { Offer } from './types'
@@ -24,6 +25,7 @@ const MAX_PDF_BYTES = 8 * 1024 * 1024
 
 /** One order. Returns what happened, for the log and the tests. */
 export async function autoShippingFor(offerId: string, d: InvoiceDeps, read: InvoiceReader): Promise<'filled' | 'nothing' | 'unclear' | 'skipped'> {
+  if (!invoicingOn(d)) return 'skipped'
   const offer = await load(d.store, offerId)
   const f = offer?.fulfilment
   if (!offer || !f || offer.status !== 'accepted' || f.test || offer.pricing?.shippingLater !== true || f.draft.state !== 'waiting' || f.shipping) return 'skipped'

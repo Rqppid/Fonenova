@@ -3,14 +3,18 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CircleAlert, CircleCheck, Clock, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ukTime } from '@/lib/format-uk'
 import { InvoiceSteps, type InvoiceSetup } from '@/components/offers/invoice-steps'
 import type { BillCandidate } from '@/lib/offers/invoice-flow'
 import { xeroDraftUrl } from '@/lib/offers/xero-url'
 import { multiplierOf, shippingBasisOf, type Client } from '@/lib/offers/clients'
+import { acceptedItemsCents, invoiceAmount, isInvoice2goNumber, type InvoiceMatch } from '@/lib/offers/order-note'
 import type { Offer } from '@/lib/offers/types'
 import { cn } from '@/lib/utils'
 
 const eur = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+const eurText = (c: number) => `€${(c / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 type Tone = 'ok' | 'wait' | 'bad'
 const ICON = { ok: CircleCheck, wait: Clock, bad: CircleAlert }
@@ -30,14 +34,14 @@ function Row({ tone, title, children, testId }: { tone: Tone; title: string; chi
 }
 
 /** What follows an acceptance: the reply to Mobile One and the DRAFT invoice in Xero. */
-export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offer; invoice?: InvoiceSetup; bills?: BillCandidate[]; client?: Client | null }) {
+export function AfterAcceptance({ offer, invoice, bills, client, matches }: { offer: Offer; invoice?: InvoiceSetup; bills?: BillCandidate[]; client?: Client | null; matches?: InvoiceMatch[] }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [shipText, setShipText] = useState('')
   const f = offer.fulfilment
 
-  async function act(action: 'reply_ok' | 'fulfil_retry' | 'shipping_set', extra: object = {}) {
+  async function act(action: 'reply_ok' | 'fulfil_retry' | 'shipping_set' | 'order_update' | 'invoice2go_link', extra: object = {}) {
     setBusy(true)
     setError(null)
     const res = await fetch('/api/offers', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, id: offer.id, ...extra }) }).catch(() => null)
@@ -67,6 +71,7 @@ export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offe
   const draftTone: Tone = d.state === 'done' ? 'ok' : d.state === 'blocked' || d.state === 'failed' ? 'bad' : 'wait'
   const replyWhere = f.test ? 'your own inbox (a test: nothing goes to Mobile One)' : 'Mobile One, in their thread'
   const stuck = r.state === 'failed' || d.state === 'failed' || d.state === 'blocked'
+  const i2g = invoice?.invoicing === false
 
   return (
     <div className="space-y-2" data-testid="after-acceptance">
@@ -84,7 +89,7 @@ export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offe
           )}
           {r.state === 'failed' && <p>Did not send (try {r.attempts}): {r.reason}. It tries again every 5 minutes.</p>}
         </Row>
-        {offer.pricing?.shippingLater === true && (
+        {!i2g && offer.pricing?.shippingLater === true && (
           <Row tone={sh ? 'ok' : 'wait'} title="Shipping" testId="step-shipping">
             {sh ? (
               <p data-testid="shipping-done">
@@ -105,7 +110,7 @@ export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offe
             ) : <p>Not entered.</p>}
           </Row>
         )}
-        <Row tone={draftTone} title="Draft invoice in Xero" testId="step-draft">
+        {!i2g && <Row tone={draftTone} title="Draft invoice in Xero" testId="step-draft">
           {d.state === 'done' && (
             <p>
               Draft <strong className="text-ink">{d.invoiceNumber}</strong> created{d.org ? ` in ${d.org}` : ''}. It is a draft only: approve and send it in Xero for now.{' '}
@@ -133,11 +138,55 @@ export function AfterAcceptance({ offer, invoice, bills, client }: { offer: Offe
             </>
           )}
           {d.state === 'failed' && <p>Did not work (try {d.attempts}): {d.reason}. It tries again every 5 minutes.</p>}
-        </Row>
+        </Row>}
       </ul>
-      <InvoiceSteps offer={offer} setup={invoice} bills={bills} />
-      {stuck && <Button size="sm" variant="outline" disabled={busy} onClick={() => act('fulfil_retry')}>{busy ? 'Working…' : 'Try again now'}</Button>}
+      {i2g ? <Invoice2goCard offer={offer} client={client ?? null} matches={matches ?? []} busy={busy} error={error} act={act} /> : <InvoiceSteps offer={offer} setup={invoice} bills={bills} />}
+      {!i2g && stuck && <Button size="sm" variant="outline" disabled={busy} onClick={() => act('fulfil_retry')}>{busy ? 'Working…' : 'Try again now'}</Button>}
       {error && <p role="alert" className="text-[13px] text-loss">{error}</p>}
+    </div>
+  )
+}
+
+/** While Invoice2go makes the invoices: a hand-kept checklist and the figure to type into Invoice2go. Creates nothing. */
+function Invoice2goCard({ offer, client, matches, busy, error, act }: { offer: Offer; client: Client | null; matches: InvoiceMatch[]; busy: boolean; error: string | null; act: (a: 'order_update' | 'invoice2go_link', extra?: object) => Promise<void> }) {
+  const note = offer.fulfilment?.order
+  const [dhl, setDhl] = useState(note?.dhlCostCents !== undefined ? (note.dhlCostCents / 100).toFixed(2) : '')
+  const [num, setNum] = useState('')
+  const t = dhl.trim().replace(/^€/, '').replace(/,/g, '')
+  const dhlCents = /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(Number(t) * 100) : null
+  const items = acceptedItemsCents(offer)
+  const amount = items !== null && client ? invoiceAmount(items, client, dhlCents ?? note?.dhlCostCents ?? null) : null
+  const linked = note?.invoice2go
+  return (
+    <div className="space-y-3 rounded-md bg-subtle p-3 text-[13px]" data-testid="invoice2go-card">
+      <p className="font-medium text-ink" data-testid="invoice2go-banner">Invoices are made in Invoice2go for now.</p>
+      <p className="text-ink-2">Create and send the invoice there once the goods have arrived and the DHL cost is known. This card only keeps your notes; it creates nothing.</p>
+      <label className="flex items-start gap-2" data-testid="goods-arrived"><input type="checkbox" checked={!!note?.goodsArrivedAt} disabled={busy} onChange={(e) => act('order_update', { goodsArrived: e.target.checked })} /><span>Goods arrived in Belfast{note?.goodsArrivedAt ? <span className="block text-[12.5px] text-ink-3">{ukTime(note.goodsArrivedAt)}</span> : null}</span></label>
+      <div className="space-y-1.5">
+        <label className="flex flex-wrap items-center gap-2"><span className="text-ink-2">{client?.shippingBasis === 'own_dhl' ? 'Our DHL cost, euros' : "Mobile One's shipping, euros"}</span><input aria-label="DHL cost, euros" inputMode="decimal" value={dhl} onChange={(e) => setDhl(e.target.value)} placeholder="e.g. 120.00" className="h-9 w-32 rounded-md border border-line bg-surface px-2 text-right text-[13px]" />
+          <Button size="sm" variant="outline" disabled={busy || dhlCents === null} onClick={() => act('order_update', { dhlCostCents: dhlCents })} data-testid="dhl-save">Save</Button>
+          {note?.dhlCostCents !== undefined && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setDhl(''); act('order_update', { dhlCostCents: null }) }}>Clear</Button>}
+        </label>
+        {amount && <p data-testid="invoice-amount" className="text-ink"><strong>Invoice amount for Invoice2go:</strong> {amount.working}</p>}
+      </div>
+      {linked ? (
+        <p data-testid="invoice2go-linked">Linked to Invoice2go invoice <strong className="text-ink">{linked.number}</strong>{linked.xeroInvoiceId ? ' (matched to its Xero invoice)' : ''}.</p>
+      ) : (
+        <div className="space-y-1.5">
+          <label className="flex flex-wrap items-center gap-2"><span className="text-ink-2">Invoice2go number</span><input aria-label="Invoice2go number" inputMode="numeric" value={num} onChange={(e) => setNum(e.target.value)} placeholder="e.g. 2026049" className="h-9 w-32 rounded-md border border-line bg-surface px-2 text-[13px]" />
+            <Button size="sm" variant="primary" disabled={busy || !isInvoice2goNumber(num)} onClick={() => act('invoice2go_link', { number: num.trim(), xeroInvoiceId: null })} data-testid="link-number">Link this number</Button>
+          </label>
+          {matches.length > 0 && (
+            <div data-testid="invoice-matches" className="space-y-1">
+              <p className="text-ink-2">Possible matches in Xero (read only):</p>
+              {matches.map((m) => (
+                <div key={m.id} className="flex flex-wrap items-center gap-2"><span>{m.number} · {m.status.toLowerCase()} · {eurText(m.totalCents)}{m.exact ? ' · matches the amount' : ''}</span><Button size="sm" variant="outline" disabled={busy} onClick={() => act('invoice2go_link', { number: m.number, xeroInvoiceId: m.id })}>Link</Button></div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {error && <p role="alert" className="text-loss">{error}</p>}
     </div>
   )
 }

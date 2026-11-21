@@ -11,6 +11,7 @@ import { xeroWriteApi, xeroWriteConfig } from '../xero/write'
 import type { Ledger } from '../types'
 import type { FulfilDeps } from './fulfil'
 import { notify } from './telegram'
+import { invoicingModeFromEnv } from './invoicing-mode'
 import { fulfilOffer } from './fulfil'
 import { scheduleAuto } from './auto-invoice'
 
@@ -24,6 +25,7 @@ export function fulfilDeps(store: Store, over: Partial<Pick<FulfilDeps, 'notify'
     dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''),
     allowReal: process.env.OFFERS_ALLOW_REAL_SEND === 'true',
     allowLiveXero: process.env.XERO_WRITE_ALLOW_LIVE === 'true',
+    invoicing: invoicingModeFromEnv() === 'dashboard',
     ownerAddress: g?.to ?? 'info@fonenova.com',
     knownOrderIds: async () => {
       const ledger = await getJson<Ledger>(store, 'ledger')

@@ -11,6 +11,8 @@ import { archiveTestOffers } from '@/lib/offers/test-archive'
 import { setOrderShipping } from '@/lib/offers/shipping'
 import { acceptByEmail } from '@/lib/offers/manual-accept'
 import { deleteOffer } from '@/lib/offers/delete'
+import { linkInvoice2go, updateOrderNotes } from '@/lib/offers/invoice2go'
+import { loadSnapshot } from '@/lib/xero/client'
 import { deletePublicOffer, publicStoreConfigured } from '@/lib/offers/public-store'
 import { approveInvoice, confirmBill, fileInvoice, recheckDraft, sendInvoice } from '@/lib/offers/invoice-flow'
 import { attachImeiFiles, clearImeiFiles, findImeiFiles, sendImeiFollowUp } from '@/lib/offers/imei'
@@ -50,6 +52,15 @@ export async function PUT(req: Request) {
       : await confirmBill(e.id, e.billId, d)
     // Re-checking can clear what blocked an automatic invoice (an address added, the right Xero organisation chosen).
     if (e.action === 'draft_recheck' && r.ok) await scheduleAuto(e.id, d).catch(() => {})
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'order_update') {
+    const r = await updateOrderNotes(e.id, fulfilDeps(store), { goodsArrived: e.goodsArrived, dhlCostCents: e.dhlCostCents })
+    return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
+  }
+  if (e.action === 'invoice2go_link') {
+    const snap = await loadSnapshot().catch(() => null)
+    const r = await linkInvoice2go(e.id, fulfilDeps(store), { number: e.number, xeroInvoiceId: e.xeroInvoiceId }, (snap?.invoices ?? []).filter((i) => i.kind === 'sale'))
     return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.message }, 409)
   }
   if (e.action === 'delete_offer') {

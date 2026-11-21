@@ -23,6 +23,8 @@ export interface InvoiceSetup {
   filingConfigured: boolean
   /** Whether the organisation drafts go to is a live one (null when none is chosen). */
   orgIsLive: boolean | null
+  /** False while Invoice2go makes the invoices (OFFERS_INVOICING). Absent means on. */
+  invoicing?: boolean
 }
 
 type Tone = 'ok' | 'wait' | 'bad'

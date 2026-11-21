@@ -16,6 +16,7 @@ import { getJson } from '../store'
 import { autoInvoiceOf, clientsFrom, type Client } from './clients'
 import { load, log, mutate, type FulfilDeps } from './fulfil'
 import { approveInvoice, sendInvoice, type ActionResult, type InvoiceDeps } from './invoice-flow'
+import { INVOICE2GO_NOTE, invoicingOn } from './invoicing-mode'
 import type { Offer } from './types'
 
 /** How long after acceptance (and the draft) the invoice goes out. The 5-minute check then runs it, so 10 to 15 minutes in practice. */
@@ -74,6 +75,7 @@ async function plan(o: Offer, d: InvoiceDeps): Promise<Plan> {
  * a blocked one is re-checked and scheduled as soon as what blocked it clears, without telling you twice.
  */
 export async function scheduleAuto(offerId: string, d: InvoiceDeps): Promise<void> {
+  if (!invoicingOn(d)) return
   const o = await load(d.store, offerId)
   const f = o?.fulfilment
   if (!o || !f || o.status !== 'accepted' || f.draft.state !== 'done') return
@@ -99,6 +101,7 @@ export async function scheduleAuto(offerId: string, d: InvoiceDeps): Promise<voi
 
 /** Run the automatic invoice if it is due: approve, then email. Each step is the same code as the manual button. */
 export async function runAuto(offerId: string, d: InvoiceDeps): Promise<ActionResult> {
+  if (!invoicingOn(d)) { await holdOffAuto(offerId, d); return { ok: false, message: INVOICE2GO_NOTE } }
   const now = nowOf(d)
   const at = now.toISOString()
   const claimed = await mutate(d.store, offerId, (o) => {
@@ -144,6 +147,7 @@ export async function holdAuto(offerId: string, d: FulfilDeps): Promise<ActionRe
 
 /** Let a held one run again, 10 minutes from now. */
 export async function resumeAuto(offerId: string, d: FulfilDeps): Promise<ActionResult> {
+  if (!invoicingOn(d)) return { ok: false, message: INVOICE2GO_NOTE }
   const now = nowOf(d)
   const dueAt = new Date(now.getTime() + AUTO_DELAY_MS).toISOString()
   const done = await mutate(d.store, offerId, (o) => {
@@ -158,6 +162,11 @@ export async function resumeAuto(offerId: string, d: FulfilDeps): Promise<Action
 export async function sweepAuto(d: InvoiceDeps): Promise<{ scheduled: number; ran: number }> {
   const offers = (await getJson<Offer[]>(d.store, 'offers')) ?? []
   const out = { scheduled: 0, ran: 0 }
+  // Invoice2go mode: nothing is scheduled or run, and anything already queued is held so it cannot go out later.
+  if (!invoicingOn(d)) {
+    for (const o of offers) if (o.fulfilment?.auto && (o.fulfilment.auto.state === 'scheduled' || o.fulfilment.auto.state === 'running')) await holdOffAuto(o.id, d)
+    return out
+  }
   for (const o of offers) {
     const f = o.fulfilment
     if (!f || o.status !== 'accepted') continue
@@ -184,4 +193,14 @@ export async function sweepAuto(d: InvoiceDeps): Promise<{ scheduled: number; ra
     }
   }
   return out
+}
+
+/** Invoice2go mode: a queued or running automatic invoice is stopped (held), so no invoice can be approved or emailed later. */
+async function holdOffAuto(offerId: string, d: FulfilDeps): Promise<void> {
+  const at = nowOf(d).toISOString()
+  await mutate(d.store, offerId, (o) => {
+    const a = o.fulfilment?.auto
+    if (!o.fulfilment || !a || (a.state !== 'scheduled' && a.state !== 'running')) return null
+    return { ...o, updatedAt: at, fulfilment: { ...o.fulfilment, auto: { ...a, state: 'held', at, reason: 'Invoices are made in Invoice2go' } }, audit: log(o, at, 'The automatic invoice was stopped: invoices are made in Invoice2go for now') }
+  })
 }
