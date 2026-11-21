@@ -9,7 +9,7 @@ import { SendPanel, type SendSetup } from '@/components/offers/send-panel'
 import type { Client } from '@/lib/offers/clients'
 import { whyNotDeletable } from '@/lib/offers/deletable'
 import { offerLabel } from '@/lib/offers/label'
-import { ManualSentPanel } from '@/components/offers/manual-send-panel'
+import { ManualSentPanel, SentGuessBanner } from '@/components/offers/manual-send-panel'
 import { Button } from '@/components/ui/button'
 import { parseEuro } from '@/lib/deal'
 import { offerCostCents, offerFlags, offerUnits } from '@/lib/offers/check'
@@ -280,6 +280,7 @@ export function OfferDetail({ offer, clients = [], send = { allowReal: false, st
           ? <span className="flex flex-wrap items-center gap-2 rounded-md border border-loss/30 bg-loss-soft px-2 py-1 text-[13px] text-loss" data-testid="delete-confirm">Delete this offer for good? <Button size="sm" variant="outline" disabled={busy} onClick={() => put({ action: 'delete_offer', id: offer.id, confirm: true })} data-testid="delete-yes">Yes, delete</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</Button></span>
           : <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)} data-testid="delete-offer-button">Delete this offer</Button>)}
       </div>
+      {(offer.status === 'needs_review' || offer.status === 'ready') && <SentGuessBanner offer={offer} />}
       {showManual && (offer.status === 'needs_review' || offer.status === 'ready') && <ManualSentPanel offer={offer} client={offer.pricing ? clients.find((c) => c.id === offer.pricing!.clientId) ?? null : null} />}
       {offer.status === 'ready' && <PricePanel key={offer.updatedAt} offer={offer} clients={clients} />}
       {(offer.status === 'ready' || offer.status === 'sent' || offer.status === 'accepted' || offer.status === 'declined' || offer.status === 'expired') && <SendPanel key={`${offer.updatedAt}-send`} offer={offer} clients={clients} setup={send} />}

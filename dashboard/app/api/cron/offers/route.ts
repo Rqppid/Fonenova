@@ -5,6 +5,7 @@ import { sweepFulfilment } from '@/lib/offers/fulfil'
 import { fulfilDeps, fulfilThenAuto, invoiceDeps } from '@/lib/offers/fulfil-server'
 import { sweepAuto } from '@/lib/offers/auto-invoice'
 import { readInvoicePdf } from '@/lib/offers/invoice-read'
+import { detectSent } from '@/lib/offers/sent-detect'
 import { sweepShipping } from '@/lib/offers/shipping-auto'
 import { ingestOffers } from '@/lib/offers/ingest'
 import { publicStoreConfigured } from '@/lib/offers/public-store'
@@ -44,6 +45,8 @@ async function run(req: Request) {
     await store.set('offers:status', { lastRunAt: new Date().toISOString(), ok: false, checked: 0, added: 0, error: g.connected ? 'Gmail is connected send-only: connect it again in Settings to read offers' : (g.message ?? 'Gmail is not connected') })
     return NextResponse.json({ ok: false, skipped: 'Gmail cannot read mail yet', swept, fulfilled, shipped, autoInvoiced })
   }
+  // Offers you emailed to a client by hand: look in Sent mail and SUGGEST (never record) which offer it was.
+  const detected = await detectSent({ store, list: (q) => listMessageIds(c, q, store), get: (id) => getMessage(c, id, store), read: (text, subject) => readOffer(text, subject), notify, dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, '') }).catch(() => null)
   try {
     const r = await ingestOffers({
       store,
@@ -54,7 +57,7 @@ async function run(req: Request) {
       notify,
       dashboardUrl: process.env.AUTH_URL?.replace(/\/$/, ''),
     })
-    return NextResponse.json({ ok: r.errors.length === 0, checked: r.checked, added: r.added.length, skipped: r.skipped, errors: r.errors.length, swept, fulfilled, shipped, autoInvoiced })
+    return NextResponse.json({ ok: r.errors.length === 0, checked: r.checked, added: r.added.length, skipped: r.skipped, errors: r.errors.length, swept, fulfilled, shipped, autoInvoiced, detected })
   } catch (e) {
     const message = e instanceof Error ? e.message.slice(0, 200) : 'Offer check failed'
     await store.set('offers:status', { lastRunAt: new Date().toISOString(), ok: false, checked: 0, added: 0, error: message })
